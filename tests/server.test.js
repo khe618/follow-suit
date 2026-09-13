@@ -147,16 +147,6 @@ test("an oversized frame closes the connection with 1009, and the room keeps wor
   a.ws.close();
 });
 
-test("a human cannot take a bot's name", async () => {
-  const room = uniqueRoom();
-  const c = connect(room);
-  await c.open();
-  c.send({ type: "join", name: "Bot Ada" });
-  const err = await c.until((m) => m.type === "error", "reserved name");
-  assert.match(err.message, /reserved/i);
-  c.ws.close();
-});
-
 test("join seats a player and returns a token", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");

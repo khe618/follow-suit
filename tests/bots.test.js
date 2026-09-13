@@ -5,11 +5,17 @@ const { fairValue } = require("../lib/fair-value.js");
 
 const situation = { hand: { spades: 6, hearts: 1, diamonds: 1, clubs: 0 }, flips: { spades: 0, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 2, reference: "spades" };
 
-test("five distinct bot names, then null", () => {
-  assert.equal(new Set(BOT_NAMES).size, 5);
-  assert.equal(pickBotName([]), BOT_NAMES[0]);
-  assert.equal(pickBotName([BOT_NAMES[0]]), BOT_NAMES[1]);
+test("bot names: a pool of 40 short names, drawn at random from the free ones", () => {
+  assert.equal(BOT_NAMES.length, 40);
+  assert.equal(new Set(BOT_NAMES).size, 40);
+  for (const n of BOT_NAMES) assert.ok(n.length <= 8 && /^[A-Z][a-z]+$/.test(n), n);
+  assert.equal(pickBotName([], () => 0), BOT_NAMES[0]);
+  assert.equal(pickBotName([BOT_NAMES[0]], () => 0), BOT_NAMES[1]);
+  assert.equal(pickBotName([], (n) => n - 1), BOT_NAMES[39]);
   assert.equal(pickBotName(BOT_NAMES), null);
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) seen.add(pickBotName([]));
+  assert.ok(seen.size > 10, "default randomInt actually varies");
 });
 
 test("profiles cycle", () => {

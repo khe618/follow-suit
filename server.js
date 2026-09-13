@@ -7,7 +7,6 @@ const { WebSocketServer } = require("ws");
 const { createGame } = require("./lib/game.js");
 const { createRegistry } = require("./lib/rooms.js");
 const { buildState } = require("./lib/snapshot.js");
-const { BOT_NAMES } = require("./lib/bots.js");
 
 const { readConfig } = require("./lib/config.js");
 
@@ -51,11 +50,6 @@ function broadcast(room) {
 
 function normalizeName(raw) {
   return String(raw ?? "").trim().replace(/\s+/g, " ").slice(0, 16);
-}
-
-function isReservedName(name) {
-  const lower = name.toLowerCase();
-  return BOT_NAMES.some((botName) => botName.toLowerCase() === lower);
 }
 
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
@@ -175,10 +169,6 @@ wss.on("connection", (ws, req) => {
         const name = normalizeName(msg.name);
         if (!name) {
           send(ws, { type: "error", message: "Please enter a name." });
-          return;
-        }
-        if (isReservedName(name)) {
-          send(ws, { type: "error", message: "That name is reserved for bots." });
           return;
         }
         const result = registry.join(room, { name, ws });
