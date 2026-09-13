@@ -99,7 +99,9 @@
       event.preventDefault();
       saveName();
       if (!roomCode) {
-        $("createBtn").click();
+        const code = $("codeInput").value.trim().toLowerCase();
+        if (/^[a-z]{4}$/.test(code)) location.href = `/${code}`;
+        else $("createBtn").click();
         return;
       }
       const name = $("nameInput").value.trim();
@@ -161,7 +163,11 @@
     });
   }
   function send(payload) {
-    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      toast("Reconnecting, try again in a moment.");
+      return;
+    }
+    socket.send(JSON.stringify(payload));
   }
   function setBidControlsEnabled(enabled) {
     for (const id of ["bidInput", "bidRange", "lockBtn"]) $(id).disabled = !enabled;
