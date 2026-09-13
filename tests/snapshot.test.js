@@ -12,12 +12,12 @@ function makeRoom() {
     ["p2", { id: "p2", name: "Ben", isBot: false, connected: true }],
     ["p3", { id: "p3", name: "Bot Ada", isBot: true, connected: true, profile: { key: "keen", shade: 1, sigma: 0 } }]
   ]);
-  const room = { code: "abcd", seats, game, hostId: () => "p1" };
+  const room = { code: "abcd", seats, game };
   return { clock, game, room };
 }
 
 // Exact allowlists. Anything not listed here is a leak, whatever it is called.
-const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "hostId", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
+const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
 const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
 const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
 const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "price", "void", "flipped", "matched", "deltas"].sort();
@@ -34,13 +34,38 @@ function assertShape(state) {
   assert.equal(JSON.stringify(state).includes("shade"), false, "bot profile leaked");
 }
 
+test("dealing snapshot has own hand, reference, null auction, timing, and no deck", () => {
+  const { room, game } = makeRoom();
+  game.start([...room.seats.values()]);
+  const s = buildState(room, "p1");
+  assert.equal(s.phase, "dealing");
+  assert.equal(s.revealStep, null);
+  assert.equal(s.auctionIndex, null);
+  assert.equal(s.hand.length, 6);
+  assert.ok(s.reference);
+  assert.equal(s.flipped.length, 1);
+  assert.equal(s.cardsRemaining, 23);
+  assert.equal(s.remainingMs, 7000);
+  assert.deepEqual(s.timing, { dealMs: 7000, bidMs: 20000, revealBidsMs: 3000, revealCardMs: 4000 });
+  assert.equal(s.myBid, null);
+  assert.deepEqual(s.history, []);
+  assert.equal(s.players.every((p) => !("hand" in p) && !("locked" in p)), true);
+  assertShape(s);
+  const text = JSON.stringify(s);
+  assert.equal(text.includes('"deck"'), false);
+  const other = buildState(room, "p2");
+  assert.notDeepEqual(other.hand, s.hand, "each recipient sees only their own hand");
+  const visitor = buildState(room, null);
+  assert.equal(visitor.phase, "dealing");
+  assert.equal(visitor.playerCount, 3);
+});
+
 test("lobby snapshot lists seats and hides nothing sensitive", () => {
   const { room } = makeRoom();
   const s = buildState(room, "p1");
   assert.equal(s.type, "state");
   assert.equal(s.room, "abcd");
   assert.equal(s.phase, "lobby");
-  assert.equal(s.hostId, "p1");
   assert.equal(s.you, "p1");
   assert.deepEqual(s.players.map((p) => p.id), ["p1", "p2", "p3"]);
   assert.equal(s.players[2].isBot, true);
@@ -58,6 +83,7 @@ test("lobby snapshot lists seats and hides nothing sensitive", () => {
 test("visitors get nothing about a running match", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   clock.advance(20000);
   const visitor = buildState(room, null);
   assert.deepEqual(Object.keys(visitor).sort(), VISITOR_KEYS);
@@ -66,8 +92,9 @@ test("visitors get nothing about a running match", () => {
 });
 
 test("a disconnected human reads as locked, a bot only once it has bid", () => {
-  const { room, game } = makeRoom();
+  const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   game.setConnected("p2", false);
   const s = buildState(room, "p1");
   assert.equal(s.players.find((p) => p.id === "p2").locked, true);
@@ -76,8 +103,9 @@ test("a disconnected human reads as locked, a bot only once it has bid", () => {
 });
 
 test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
-  const { room, game } = makeRoom();
+  const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   game.bid("p2", { auction: 1, amount: 33, locked: true });
   const s1 = buildState(room, "p1");
   assert.equal(s1.phase, "bidding");
@@ -102,9 +130,10 @@ test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
 test("a resumed recipient mid-bidding gets the same public record", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   for (const id of ["p1", "p2"]) game.bid(id, { auction: 1, amount: 20, locked: true });
   clock.advance(6000);
-  clock.advance(2500 + 3000);
+  clock.advance(3000 + 4000);
   assert.equal(game.auction.index, 2);
   const a = buildState(room, "p1");
   const b = buildState(room, "p2");
@@ -117,6 +146,7 @@ test("a resumed recipient mid-bidding gets the same public record", () => {
 test("reveal(bids) snapshot exposes the current auction's bids via history only", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   clock.advance(20000);
   const s = buildState(room, "p1");
   assert.equal(s.phase, "reveal");
@@ -131,10 +161,11 @@ test("reveal(bids) snapshot exposes the current auction's bids via history only"
 test("results snapshot reveals every hand", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   while (game.phase !== "results") {
     if (game.phase === "bidding") for (const id of ["p1", "p2"]) game.bid(id, { auction: game.auction.index, amount: 20, locked: true });
     clock.advance(6000);
-    clock.advance(5500);
+    clock.advance(7000);
   }
   const s = buildState(room, "p2");
   assert.equal(s.phase, "results");

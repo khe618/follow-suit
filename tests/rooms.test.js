@@ -5,7 +5,7 @@ const { createGame } = require("../lib/game.js");
 const { createClock } = require("./helpers/clock.js");
 
 const TTL = 10000;
-const CONFIG = { bidMs: 20000, revealBidsMs: 2500, revealCardMs: 3000 };
+const CONFIG = { dealMs: 7000, bidMs: 20000, revealBidsMs: 3000, revealCardMs: 4000 };
 
 function fakeWs() {
   return { closed: [], OPEN: 1, readyState: 1, close(code) { this.closed.push(code); } };
@@ -37,22 +37,16 @@ test("reserveCode yields 4 lowercase letters and honours reservations", () => {
   assert.equal(registry.reserveCode(), null);
 });
 
-test("join creates a seat with a token; hostId is the earliest connected human", () => {
+test("join creates a seat with a token", () => {
   const { registry } = setup();
   const room = registry.getOrCreate("abcd");
-  const w1 = fakeWs();
-  const w2 = fakeWs();
-  const a = registry.join(room, { name: "Ann", ws: w1 });
-  const b = registry.join(room, { name: "Ben", ws: w2 });
+  const a = registry.join(room, { name: "Ann", ws: fakeWs() });
+  const b = registry.join(room, { name: "Ben", ws: fakeWs() });
   assert.equal(a.ok, true);
   assert.equal(a.seat.id, "p1");
   assert.match(a.seat.resumeToken, /^[0-9a-f]{32}$/);
   assert.equal(b.seat.id, "p2");
-  assert.equal(room.hostId(), "p1");
-  registry.disconnect(room, a.seat, w1);
-  assert.equal(room.hostId(), "p2");
-  registry.disconnect(room, b.seat, w2);
-  assert.equal(room.hostId(), null, "no connected human means no host");
+  assert.equal(typeof room.hostId, "undefined", "no host concept");
 });
 
 test("join is refused when full or when a game is running", () => {
@@ -200,7 +194,7 @@ test("returnToLobby sweeps long-disconnected seats and arms expiry for the rest"
   while (room.game.phase !== "results") {
     if (room.game.phase === "bidding") room.game.bid("p1", { auction: room.game.auction.index, amount: 10, locked: true });
     clock.advance(20000);
-    clock.advance(5500);
+    clock.advance(CONFIG.revealBidsMs + CONFIG.revealCardMs);
   }
   // Cat drops on the results screen, moments before the host returns to the lobby.
   registry.disconnect(room, c, w3);
@@ -226,7 +220,7 @@ test("a seat that disconnects on the results screen expires after the TTL; stand
       room.game.bid("p1", { auction: room.game.auction.index, amount: 10, locked: true });
       room.game.bid("p2", { auction: room.game.auction.index, amount: 5, locked: true });
     }
-    clock.advance(5500);
+    clock.advance(CONFIG.revealBidsMs + CONFIG.revealCardMs);
   }
   registry.disconnect(room, b, w2);
   clock.advance(TTL);

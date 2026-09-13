@@ -7,21 +7,16 @@ const { WebSocketServer } = require("ws");
 const { createGame } = require("./lib/game.js");
 const { createRegistry } = require("./lib/rooms.js");
 const { buildState } = require("./lib/snapshot.js");
-const { BOT_NAMES } = require("./lib/bots.js");
 
-function envInt(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
+const { readConfig } = require("./lib/config.js");
 
-const PORT = envInt("PORT", 3000);
-const CONFIG = {
-  bidMs: envInt("BID_MS", 20000),
-  revealBidsMs: envInt("REVEAL_BIDS_MS", 2500),
-  revealCardMs: envInt("REVEAL_CARD_MS", 3000)
-};
-const RESUME_TTL_MS = envInt("RESUME_TTL_MS", 10 * 60 * 1000);
-const HEARTBEAT_MS = envInt("HEARTBEAT_MS", 30000);
+const SETTINGS = readConfig();
+const PORT = SETTINGS.port;
+const CONFIG = SETTINGS.game;
+const RESUME_TTL_MS = SETTINGS.resumeTtlMs;
+const HEARTBEAT_MS = SETTINGS.heartbeatMs;
+// Quick play fills a fresh room to this many seats with bots and deals.
+const QUICK_PLAY_SEATS = 4;
 
 // Crash resistance: one bad socket message must not take every room down.
 // Each message and timer is also wrapped individually (see below), so this is
@@ -59,11 +54,6 @@ function normalizeName(raw) {
   return String(raw ?? "").trim().replace(/\s+/g, " ").slice(0, 16);
 }
 
-function isReservedName(name) {
-  const lower = name.toLowerCase();
-  return BOT_NAMES.some((botName) => botName.toLowerCase() === lower);
-}
-
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
 
 const app = express();
@@ -82,9 +72,7 @@ app.get("/api/new-room", (_req, res) => {
   res.json({ ok: true, room });
 });
 
-app.get("/how-to-play", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "how-to-play.html"));
-});
+app.get("/how-to-play", (_req, res) => res.type("html").send(INDEX_HTML));
 
 app.get(/^\/[a-z]{4}$/, (_req, res) => res.type("html").send(INDEX_HTML));
 
@@ -150,10 +138,37 @@ wss.on("connection", (ws, req) => {
     send(ws, { type: "joined", playerId: seat.id, resumeToken: seat.resumeToken });
   }
 
-  function requireHost() {
-    if (seat && room.hostId() === seat.id) return true;
-    send(ws, { type: "error", message: "Only the host can do that." });
+  // Anyone seated may run the table. Visitors and displaced sockets may not.
+  function requireSeated() {
+    if (seat) return true;
+    send(ws, { type: "error", message: "Sit down first." });
     return false;
+  }
+
+  // Seats this socket: adopts an existing seat if the token matches, else
+  // joins with a fresh seat. Returns true only when a NEW seat was created.
+  function seatHuman(msg) {
+    if (seat) return false;
+    const existing = registry.resume(room, String(msg.resumeToken || ""), ws);
+    if (existing) {
+      seat = existing;
+      joinedMessage();
+      return false;
+    }
+    const name = normalizeName(msg.name);
+    if (!name) {
+      send(ws, { type: "error", message: "Please enter a name." });
+      return false;
+    }
+    const result = registry.join(room, { name, ws });
+    if (!result.ok) {
+      const message = result.error === "game_in_progress" ? "Game in progress, try again after this game." : "That room is full.";
+      send(ws, { type: "error", code: result.error, message });
+      return false;
+    }
+    seat = result.seat;
+    joinedMessage();
+    return true;
   }
 
   function handle(msg) {
@@ -170,45 +185,34 @@ wss.on("connection", (ws, req) => {
         return;
       }
       case "join": {
-        if (seat) return;
-        const existing = registry.resume(room, String(msg.resumeToken || ""), ws);
-        if (existing) {
-          seat = existing;
-          joinedMessage();
-          return;
+        seatHuman(msg);
+        return;
+      }
+      case "quick-play": {
+        const alone = room.seats.size === 0;
+        if (!seatHuman(msg) || !alone) return;
+        // Only a brand-new, empty room is filled with bots and dealt. If
+        // anyone else sat down first this was a plain join.
+        while (room.seats.size < QUICK_PLAY_SEATS) {
+          if (!registry.addBot(room).ok) break;
         }
-        const name = normalizeName(msg.name);
-        if (!name) {
-          send(ws, { type: "error", message: "Please enter a name." });
-          return;
-        }
-        if (isReservedName(name)) {
-          send(ws, { type: "error", message: "That name is reserved for bots." });
-          return;
-        }
-        const result = registry.join(room, { name, ws });
-        if (!result.ok) {
-          const message = result.error === "game_in_progress" ? "Game in progress, try again after this game." : "That room is full.";
-          send(ws, { type: "error", code: result.error, message });
-          return;
-        }
-        seat = result.seat;
-        joinedMessage();
+        const started = registry.startGame(room);
+        if (!started.ok) send(ws, { type: "error", message: "Could not start the game." });
         return;
       }
       case "add-bot": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         const result = registry.addBot(room);
         if (!result.ok) send(ws, { type: "error", message: result.error === "room_full" ? "The room is full." : "Bots can only be added in the lobby." });
         return;
       }
       case "remove-bot": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         if (!registry.removeBot(room, String(msg.playerId || ""))) send(ws, { type: "error", message: "Bots can only be removed in the lobby." });
         return;
       }
       case "start-game": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         const result = registry.startGame(room);
         if (!result.ok) send(ws, { type: "error", message: result.error === "need_players" ? "Need at least two players." : "The game has already started." });
         return;
@@ -222,7 +226,7 @@ wss.on("connection", (ws, req) => {
         return;
       }
       case "return-to-lobby": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         if (!registry.returnToLobby(room)) send(ws, { type: "error", message: "Play again is only available on the results screen." });
         return;
       }

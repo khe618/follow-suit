@@ -31,7 +31,7 @@ test.before(async () => {
   child = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
     // BID_MS 4000 keeps bot bids inside 1.5 to 2 s, so every wait below has
     // room to spare, and a deadline passes quickly when a test needs one.
-    env: { ...process.env, PORT: String(PORT), RESUME_TTL_MS: String(TTL_MS), BID_MS: "4000", REVEAL_BIDS_MS: "50", REVEAL_CARD_MS: "50" },
+    env: { ...process.env, PORT: String(PORT), RESUME_TTL_MS: String(TTL_MS), DEAL_MS: "50", BID_MS: "4000", REVEAL_BIDS_MS: "50", REVEAL_CARD_MS: "50" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stderr.on("data", (b) => process.stderr.write(b));
@@ -117,13 +117,65 @@ async function join(room, name, token) {
   return c;
 }
 
+test("quick-play in a fresh room seats three bots and deals", async () => {
+  const room = uniqueRoom();
+  const c = connect(room);
+  await c.open();
+  c.send({ type: "quick-play", name: "Ann" });
+  const joined = await c.until((m) => m.type === "joined", "joined");
+  const s = await c.until((m) => m.type === "state" && m.phase === "dealing", "dealing");
+  assert.equal(s.you, joined.playerId);
+  assert.equal(s.players.length, 4);
+  assert.equal(s.players.filter((p) => p.isBot).length, 3);
+  assert.equal(s.players[0].id, joined.playerId, "the human took the first seat");
+  assert.equal(s.hand.length, 4);
+  assert.ok(c.messages.indexOf(joined) < c.messages.indexOf(s), "joined arrives before the first dealing state");
+  await c.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
+  c.ws.close();
+});
+
+test("quick-play into a room that already has a seat is a plain join", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const b = connect(room);
+  await b.open();
+  b.send({ type: "quick-play", name: "Ben" });
+  const joined = await b.until((m) => m.type === "joined", "joined");
+  const s = await b.until((m) => m.type === "state" && m.you === joined.playerId, "seated");
+  assert.equal(s.phase, "lobby");
+  assert.equal(s.players.length, 2);
+  assert.equal(s.players.some((p) => p.isBot), false);
+  a.ws.close();
+  b.ws.close();
+});
+
+test("quick-play needs a name and is refused mid-game like join", async () => {
+  const room = uniqueRoom();
+  const c = connect(room);
+  await c.open();
+  c.send({ type: "quick-play", name: "   " });
+  const err = await c.until((m) => m.type === "error", "empty name");
+  assert.match(err.message, /name/i);
+  c.send({ type: "quick-play", name: "Ann" });
+  await c.until((m) => m.type === "state" && m.phase === "dealing", "dealing");
+  const d = connect(room);
+  await d.open();
+  d.send({ type: "quick-play", name: "Dee" });
+  const refused = await d.until((m) => m.type === "error", "refused");
+  assert.equal(refused.code, "game_in_progress");
+  c.ws.close();
+  d.ws.close();
+});
+
 test("routes: shell, new-room, how-to-play, html redirect, json 404", async () => {
   assert.equal((await getJson("/")).status, 200);
   assert.equal((await getJson("/abcd")).status, 200);
   const nr = await getJson("/api/new-room");
   assert.equal(nr.status, 200);
   assert.match(JSON.parse(nr.body).room, /^[a-z]{4}$/);
-  assert.equal((await getJson("/how-to-play")).status, 200);
+  const htp = await getJson("/how-to-play");
+  assert.equal(htp.status, 200);
+  assert.match(htp.body, /<title>Follow Suit<\/title>/);
   const page = await getJson("/no-such-page", { Accept: "text/html,application/xhtml+xml,*/*;q=0.8" });
   assert.equal(page.status, 302);
   assert.equal(page.headers.location, "/");
@@ -147,34 +199,47 @@ test("an oversized frame closes the connection with 1009, and the room keeps wor
   a.ws.close();
 });
 
-test("a human cannot take a bot's name", async () => {
-  const room = uniqueRoom();
-  const c = connect(room);
-  await c.open();
-  c.send({ type: "join", name: "Bot Ada" });
-  const err = await c.until((m) => m.type === "error", "reserved name");
-  assert.match(err.message, /reserved/i);
-  c.ws.close();
-});
-
-test("join seats a player, returns a token, and makes them host", async () => {
+test("join seats a player and returns a token", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");
   const s = a.lastState();
-  assert.equal(s.hostId, a.playerId);
+  assert.equal("hostId" in s, false);
   assert.equal(s.players.length, 1);
   assert.match(a.token, /^[0-9a-f]{32}$/);
   a.ws.close();
 });
 
-test("host passes to the next connected human", async () => {
+test("any seated player can add a bot and start the game", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");
   const b = await join(room, "Ben");
+  // Visitor-shaped states have no `players`; guard the predicate and pass a
+  // watermark so older messages are never scanned (see LEARNINGS.md).
+  const from = b.messages.length;
+  b.send({ type: "add-bot" });
+  await b.until((m) => m.type === "state" && m.players && m.players.length === 3, "bot added by second joiner", from);
+  b.send({ type: "start-game" });
+  const s = await a.until((m) => m.type === "state" && m.phase === "dealing", "dealing started by second joiner");
+  assert.equal(s.players.length, 3);
   a.ws.close();
-  const s = await b.until((m) => m.type === "state" && m.hostId === b.playerId, "host handoff");
-  assert.equal(s.players.find((p) => p.id === a.playerId).connected, false);
   b.ws.close();
+});
+
+test("a visitor cannot start the game or add bots", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const v = connect(room);
+  await v.open();
+  await v.until((m) => m.type === "state", "visitor state");
+  v.send({ type: "start-game" });
+  const err = await v.until((m) => m.type === "error", "visitor refusal");
+  assert.match(err.message, /sit down/i);
+  v.send({ type: "add-bot" });
+  await v.until((m) => m.type === "error", "visitor refusal 2", v.messages.length);
+  assert.equal(a.lastState().players.length, 1);
+  assert.equal(a.lastState().phase, "lobby");
+  a.ws.close();
+  v.ws.close();
 });
 
 test("join is refused while a game is running", async () => {
@@ -329,18 +394,6 @@ test("bidding round-trips: locked bids resolve, reveal, then auction 2", async (
   assert.equal(next.flipped.length, 2);
   const scoreSum = next.players.reduce((acc, p) => acc + p.score, 0);
   assert.equal(scoreSum, 0);
-  a.ws.close();
-  b.ws.close();
-});
-
-test("non-host actions are refused with an error", async () => {
-  const room = uniqueRoom();
-  const a = await join(room, "Ann");
-  const b = await join(room, "Ben");
-  b.send({ type: "start-game" });
-  const err = await b.until((m) => m.type === "error", "host refusal");
-  assert.match(err.message, /host/i);
-  assert.equal(b.lastState().phase, "lobby");
   a.ws.close();
   b.ws.close();
 });

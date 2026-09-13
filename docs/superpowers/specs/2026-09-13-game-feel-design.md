@@ -1,7 +1,7 @@
 # Follow Suit — game feel overhaul
 
 Date: 2026-09-13
-Status: approved 2026-09-13
+Status: implemented 2026-09-13
 Builds on: `2026-09-12-follow-suit-design.md` (the rules and server architecture there stay in force except where this spec amends them)
 
 ## 1. Goal
@@ -10,13 +10,13 @@ Make Follow Suit feel like sitting at a card table, not reading a website. Same 
 
 - The game screen becomes a **poker table**: players sit around an oval, the deck and reference card sit in the middle, your hand is fanned in front of you.
 - **Animations** carry the game's events: the deal, the shuffle-back, bids being revealed, the card flip, and chips flying between seats when players pay each other.
-- **Sound effects and music**, synthesized in the browser with the Web Audio API. No audio files.
+- **Sound effects**, synthesized in the browser with the Web Audio API. No audio files, and no background music (dropped by the owner during implementation).
 - **Far less text.** Icons, numbers, and motion replace sentences. The rules leave the lobby and live in an interactive tutorial.
 - **Simpler entry.** No room-code box on the landing page. Quick play seats you with bots at once; Play with friends gives you a link to share.
 - **No host.** Anyone seated at the table can add or remove bots, deal, and play again.
 - **Bots get random human-style names** with a small bot marker.
 
-Out of scope, unchanged from v1: accounts, persistence, spectators, a fair-value debrief, native apps. Also out of scope here: composed music tracks, avatar pictures, haptics, chat, emotes.
+Out of scope, unchanged from v1: accounts, persistence, spectators, a fair-value debrief, native apps. Also out of scope here: background music of any kind, avatar pictures, haptics, chat, emotes.
 
 ## 2. Server changes
 
@@ -100,7 +100,7 @@ public/
     net.js            WebSocket connect / reconnect / send, resume, take-over
     table.js          renders the table from state; plays transitions via anim.js
     anim.js           promise-based sequencer, FLIP-style card and chip flights
-    audio.js          Web Audio SFX and generative music, mute toggles
+    audio.js          Web Audio SFX and the mute toggle
     tutorial.js       the how-to-play dialog: five slides and the calculator
     lobby.js          lobby-specific parts of the table (empty seats, deal, invite)
     landing.js        landing and join screens
@@ -142,19 +142,19 @@ Five views plus one dialog: **landing**, **join**, **table** (serves lobby, deal
 - **Centre**: a face-down deck stack whose visual thickness tracks `cardsRemaining` (up to 8 drawn layers), with the count on its top card. Beside it the reference card, large, face up. The hidden-card count is a small badge on the deck itself, a `?` glyph with the number, so nothing suggests those cards live anywhere but inside the deck. Under the table, a row of mini cards for every flipped card so far (scrolls horizontally, newest on the right) and four suit chips with counts.
 - **Your hand**: fanned at the bottom edge in front of your seat, cards overlapping, sorted by suit, face up. On phones the fan is tighter.
 - **Dock** (bidding only): a slider from 0 to 100 styled as a track of chips, the current bid as a big number in a ring that drains as the timer runs (the ring uses `timing.bidMs` and `remainingMs`, turns red under 5 s), and one **Lock** button. Locking turns the button into a check and the ring gold. Moving the slider after locking unlocks, as today. The number is also editable directly for keyboard users. The only words on the dock are "Lock" and, once locked, "Locked".
-- **Top bar**: room code as a small pill, `7 / 19` auction counter during play, sound and music toggles, **?** for the tutorial, and a **Leave** door glyph. Nothing else.
+- **Top bar**: room code as a small pill, `7 / 19` auction counter during play, a sound toggle, **?** for the tutorial, and a **Leave** door glyph. Nothing else.
 
 ### 3.4 The deal timeline
 
 Played by `table.js` when the planner (section 3.10) returns kind `deal`. Card sprites are DOM elements animated with `transform` between measured positions (FLIP), so the same code works at any viewport size.
 
 1. **Deal** (`(P + 1) × n` cards, one every 70 ms, clockwise starting from the seat to the left of you): a card back flies from the deck to each seat in turn. Yours land in the hand fan and flip face up on arrival with a card-slide sound; other players' cards stack face down at their seat; the `n` hidden cards go to a face-down pile beside the deck. At most 24 cards (2.2 of the v1 spec), so at most about 1.7 s.
-2. **Peek** (1.5 s): nothing moves. You look at your hand. Bots' seats show a brief "looking" tilt.
+2. **Peek** (1.2 s): nothing moves. You look at your hand. Bots' seats show a brief "looking" tilt.
 3. **Gather** (0.8 s): every dealt card, yours included (they flip face down first) and the hidden pile, flies back into the deck. Shuffle sound. After this step the hidden pile no longer exists; only the `?` badge on the deck remains.
 4. **Shuffle** (0.8 s): the deck splits into two half-stacks that riffle back together twice. Riffle sound.
 5. **Flip** (0.5 s): the top card flips face up into the reference slot with a flip sound. The hand fan re-deals itself quietly from the bottom edge so your cards are visible again (they are yours to look at for the whole game).
 
-Total about 5.3 s, inside the 7 s `dealMs`. The planner (section 3.10) runs the timeline only when the snapshot is a genuine transition into `dealing` and `remainingMs` is at least the timeline's length; otherwise the final frame is drawn directly. When the `bidding` snapshot arrives, the timeline is cancelled if still running and the final frame is drawn.
+Total about 5.7 s in the worst case; the planner's threshold is 6 s, inside the 7 s `dealMs`. The planner (section 3.10) runs the timeline only when the snapshot is a genuine transition into `dealing` and `remainingMs` is at least the timeline's length; otherwise the final frame is drawn directly. When the `bidding` snapshot arrives, the timeline is cancelled if still running and the final frame is drawn.
 
 ### 3.5 The auction timelines
 
@@ -175,9 +175,9 @@ A stream is six chip sprites along an arc, spaced 60 ms. With tied buyers every 
 
 **Results**: the overlay slides up after the last pay animation, or immediately on hydration. Winner's row: fanfare if you won, a softer resolve chord otherwise.
 
-### 3.6 Sound and music
+### 3.6 Sound
 
-`audio.js` builds one `AudioContext` per document on the first user gesture (landing buttons, Sit down, or any tap on the table) and calls `resume()` on it from every later gesture in case the browser suspended it. Because room entry is an in-document route change (section 3.1), the context created on the landing survives into the game. After a reload, sound stays silent until the first gesture in the new document; that is browser policy and is accepted. Two independent toggles, persisted in `localStorage` (`followsuit:sfx`, `followsuit:music`), both default on. Music pauses when the tab is hidden (`visibilitychange`), when the taken-over view is shown, and when the client leaves the table view; it resumes on the next gesture at the table.
+`audio.js` builds one `AudioContext` per document on the first user gesture (landing buttons, Sit down, or any tap on the table) and calls `resume()` on it from every later gesture in case the browser suspended it. Because room entry is an in-document route change (section 3.1), the context created on the landing survives into the game. After a reload, sound stays silent until the first gesture in the new document; that is browser policy and is accepted. One toggle, persisted in `localStorage` (`followsuit:sfx`), default on.
 
 Sound effects, all synthesized:
 
@@ -196,7 +196,6 @@ Sound effects, all synthesized:
 | game over, not won | resolved major chord, quiet |
 | button tap | a very short click |
 
-Music is generative, a lounge pad: a cycle of four chords (ii–V–I–vi in a warm key, 8 s each), each voiced by three detuned triangle oscillators through a low-pass filter with a slow LFO on the cutoff, plus a sine bass playing the root on the first beat of each bar and a very quiet brushed hi-hat pattern from filtered noise. Tempo around 76 BPM. Overall gain around −20 dBFS so it sits well under the effects. The loop runs on `AudioContext` scheduling (lookahead scheduler), not `setInterval` audio.
 
 ### 3.7 The tutorial
 
@@ -226,7 +225,7 @@ Every string the client shows during play, to keep the "less text" promise hones
 
 - `prefers-reduced-motion: reduce` replaces flights with 150 ms cross-fades and skips the shuffle; timelines still run so state changes are visible, just without travel.
 - All animation is `transform` and `opacity` only, so it stays smooth on phones.
-- Every control is a real `<button>` or `<input>`; the slider remains a native range input styled with CSS. Glyph-only controls carry accessible names: empty seat "Add a bot", bot remove "Remove {name}", `?` "How to play", door "Leave table", sound "Sound effects on/off", music "Music on/off", invite "Copy invite link". Seats have `aria-label`s of the form "{name}, {score} points, {locked | thinking | away}{, bot}".
+- Every control is a real `<button>` or `<input>`; the slider remains a native range input styled with CSS. Glyph-only controls carry accessible names: empty seat "Add a bot", bot remove "Remove {name}", `?` "How to play", door "Leave table", sound "Sound effects on/off", invite "Copy invite link". Seats have `aria-label`s of the form "{name}, {score} points, {locked | thinking | away}{, bot}".
 - One visually hidden `aria-live="polite"` region announces, in one short sentence each: bids revealed with the buyer and price ("Maya buys at 62", "No trade"), the flipped card and outcome ("Hearts, match"), your own delta ("You plus 40"), ten seconds left in bidding, connection lost and restored, and the phase changes into dealing, results, and lobby. Nothing else is announced, so the region stays quiet enough to be useful.
 - Focus: opening the tutorial moves focus into the dialog and closing it restores focus to the opener; when bidding begins focus moves to the bid number input unless the user is already interacting with a control.
 - The table works at 360 px wide and at 1440 px wide with no horizontal scroll.
@@ -249,7 +248,7 @@ The server sends more snapshots than there are transitions: a message handler br
 | into `results` | `results` |
 | into `lobby` | `lobby` |
 
-`hydrate` is true for the first `state` message received after each socket open, whatever it contains. `net.js` sets it; `joined` is not used as a gate because a resume can broadcast a snapshot before `joined` is sent. Reload mid-deal, mid-reveal, or on results therefore always draws the final frame.
+`hydrate` is true for the first seated `state` received after a socket open on which the client did not itself send `join` or `quick-play`; `net.js` sets it. A fresh join or quick play therefore animates its first transition (quick play lands straight in `dealing` and must deal), while a resume after reload or reconnect draws the final frame. `joined` is not used as a gate because a resume can broadcast a snapshot before `joined` is sent.
 
 **Ownership.** The table DOM has two layers. The **state layer** (seats, deck, reference, hand, dock, badges) is rebuilt or patched by `render` on every snapshot from `state` alone. The **sprite layer** (flying cards, chips, riffle halves) is written only by timelines. Timelines position sprites by measuring state-layer elements, then remove their sprites and reveal the corresponding state-layer element when they finish or are cancelled.
 
@@ -278,7 +277,7 @@ Client, manual in Chrome before calling it done, on a phone-width viewport and a
 2. Landing → Play with friends → second tab opens the link → Sit down → both see each other at the table → either tab adds a bot → the second tab deals.
 3. Reload mid-deal and mid-reveal: the final frame is drawn, no stuck sprites, scores correct.
 4. Tutorial: all five slides animate, the calculator agrees with the worked examples from the v1 spec (80/50/20 match → +40/−20/−20; miss → −160/+80/+80).
-5. Sound and music toggles persist across reload; music stops when the tab is hidden.
+5. The sound toggle persists across reload.
 6. Reduced motion enabled in DevTools: game still readable, no flights.
 7. Two tabs on the same seat: taken-over view appears.
 
@@ -288,7 +287,8 @@ Client, manual in Chrome before calling it done, on a phone-width viewport and a
 - Quick play is a server message, not a client script of add-bot × 3 + start, so it is one round trip and cannot be interrupted by a stray joiner half-way.
 - Host removed: with a share-link lobby and at most six seats, the host role was friction with no safety benefit. Room deletion already keyed on connected humans.
 - Bot names random from a pool rather than generated, so they read as names.
-- Audio synthesized rather than sampled: no assets to license or ship, and it matches the vector look of the table. Music is atmospheric, not a composed track; a file-based track can replace the generator later behind the same `audio.js` interface.
+- Audio synthesized rather than sampled: no assets to license or ship, and it matches the vector look of the table.
+- No background music: a generative lounge pad was specified and built, then removed at the owner's request during implementation (2026-09-13); sound effects stay.
 - The tutorial is a dialog inside the app rather than a page so it can reuse the live card, chip, and seat elements and stay in sync with the table's look.
 - History table kept on the results screen behind a disclosure: the number-heavy record is useful for people who want to study a game, but it should not be the first thing on screen.
 - ES modules without a bundler: the browser support floor for this app already assumes modern JavaScript, and splitting the client is the only way to keep the animation, audio, and rendering code reviewable.
