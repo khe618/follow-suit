@@ -15,7 +15,9 @@
   const PAYOUT = 100;
 
   function transitionKey(s) {
-    return `${s.matchId}:${s.phase}:${s.revealStep || ""}:${s.auctionIndex || 0}`;
+    let key = `${s.matchId}:${s.phase}:${s.revealStep || ""}:${s.auctionIndex || 0}`;
+    if (s.phase === "lobby") key += ":" + s.players.map((p) => p.id).join(",");
+    return key;
   }
 
   // The server broadcasts more snapshots than there are transitions (one

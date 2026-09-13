@@ -36,6 +36,12 @@ test("a first snapshot without hydrate is a real transition (quick play lands in
   assert.equal(plan(null, snap({ phase: "lobby", matchId: 0, auctionIndex: null }), { hydrate: false }).kind, "lobby");
 });
 
+test("a lobby roster change is a transition, not an update", () => {
+  const a = snap({ phase: "lobby", matchId: 0, auctionIndex: null, players: [{ id: "a", score: 0 }] });
+  const b = snap({ phase: "lobby", matchId: 0, auctionIndex: null, players: [{ id: "a", score: 0 }, { id: "b", score: 0 }] });
+  assert.deepEqual(kinds([a, a, b]), ["lobby", "update", "lobby"]);
+});
+
 test("dealing without enough time left is drawn, not animated", () => {
   assert.equal(plan(snap({ phase: "lobby" }), snap({ phase: "dealing", auctionIndex: null, remainingMs: DEAL_TIMELINE_MS }), {}).kind, "deal");
   assert.equal(plan(snap({ phase: "lobby" }), snap({ phase: "dealing", auctionIndex: null, remainingMs: DEAL_TIMELINE_MS - 1 }), {}).kind, "hydrate");
