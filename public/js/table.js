@@ -305,6 +305,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.dock.hidden = !bidding;
     if (!bidding) {
       stopRing();
+      renderBidStack();
       return;
     }
     if (resyncDraft || draft.auction !== state.auctionIndex) {
@@ -323,12 +324,31 @@ export function createTable({ send, roomCode, toast, audio }) {
     deadlineAt = performance.now() + state.remainingMs;
     paintLock();
     startRing();
+    renderBidStack();
   }
 
   function paintLock() {
     els.lockBtn.textContent = draft.locked ? "Locked" : "Lock";
     els.lockBtn.classList.toggle("locked", draft.locked);
     els.ringArc.classList.toggle("locked", draft.locked);
+  }
+
+  // Your seat shows your current bid as a chip stack that grows with the
+  // slider (spec 3.2). Only ever touches your own .seat-stack; every other
+  // phase clears it.
+  function renderBidStack() {
+    const el = seatEls.get(state.you);
+    if (!el) return;
+    const stack = el.querySelector(".seat-stack");
+    stack.replaceChildren();
+    if (state.phase !== "bidding") return;
+    const count = Math.ceil(draft.amount / 10);
+    for (let i = 0; i < count; i++) {
+      const chip = document.createElement("div");
+      chip.className = "chip-sprite stack-chip";
+      chip.style.transform = `translateY(${-i * 3}px)`;
+      stack.append(chip);
+    }
   }
 
   function tickRing() {
@@ -366,6 +386,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.bidRange.value = n;
     if (document.activeElement !== els.bidInput) els.bidInput.value = n;
     paintLock();
+    renderBidStack();
     scheduleBidSend(false);
   }
   function scheduleBidSend(immediate) {

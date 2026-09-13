@@ -217,6 +217,7 @@ td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
 /* ---- animation layer (Task 10) ---- */
 .sprite-layer .card { position: absolute; margin: 0; }
 .chip-sprite { width: 22px; height: 22px; border-radius: 50%; background: var(--chip); border: 3px dashed var(--chip-2); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
+.seat-stack .stack-chip { position: absolute; left: 50%; bottom: 0; margin-left: -11px; }
 .avatar.peek { animation: peek 600ms ease-in-out; }
 @keyframes peek { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-12deg) translateY(-3px); } }
 .rail-flash { position: absolute; inset: 0; border-radius: 50%; opacity: 0; pointer-events: none; z-index: 3; }
