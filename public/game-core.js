@@ -11,8 +11,8 @@
   const SUIT_SYMBOLS = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
   const POOL_PER_SUIT = 10;
   const MIN_PLAYERS = 2;
-  const MAX_PLAYERS = 6;
-  const HAND_SIZES = { 2: 8, 3: 6, 4: 4, 5: 4, 6: 3 };
+  const MAX_PLAYERS = 4;
+  const HAND_SIZES = { 2: 10, 3: 7, 4: 5 };
   const PAYOUT = 100;
   const MAX_BID = 100;
 
@@ -51,17 +51,15 @@
     return counts;
   }
 
-  // Hands come off the top of a shuffled pool, then n hidden cards, then the
-  // deck is those hands plus the hidden cards reshuffled. The rest of the pool
-  // is discarded unseen.
+  // Hands come off the top of a shuffled pool, then the deck is exactly those
+  // hands reshuffled. The rest of the pool is discarded unseen.
   function deal(playerCount, randomInt = defaultRandomInt) {
     const n = handSize(playerCount);
     const pool = shuffle(buildPool(), randomInt);
     const hands = [];
     for (let p = 0; p < playerCount; p++) hands.push(pool.slice(p * n, (p + 1) * n));
-    const hidden = pool.slice(playerCount * n, (playerCount + 1) * n);
-    const deck = shuffle(hands.flat().concat(hidden), randomInt);
-    return { hands, hidden, deck };
+    const deck = shuffle(hands.flat(), randomInt);
+    return { hands, deck };
   }
 
   function resolveBids(bids) {

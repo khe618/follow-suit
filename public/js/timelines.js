@@ -69,17 +69,15 @@ export async function dealTimeline(ctx, t, state) {
   const players = t.orderedPlayers(state);
   const n = state.hand.length;
   const deck = ctx.centre(els.deck);
-  const hiddenSpot = { x: deck.x - 70, y: deck.y + 30 };
   els.handFan.style.visibility = "hidden";
   els.handMemo.hidden = true;
   els.refSlot.style.visibility = "hidden";
   const handCards = [...els.handFan.children];
-  // Deal order per round: the seat to your left, on round to your right, then you, then a hidden card.
+  // Deal order per round: the seat to your left, on round to your right, then you.
   const targets = [];
   for (let round = 0; round < n; round++) {
     for (let i = 1; i < players.length; i++) targets.push({ kind: "seat", id: players[i].id, round });
     targets.push({ kind: "me", index: round });
-    targets.push({ kind: "hidden", round });
   }
   // Everything is dealt face down; your cards are shown on the real hand
   // fan once the deal is over, so nothing has to be read mid-flight.
@@ -93,11 +91,9 @@ export async function dealTimeline(ctx, t, state) {
     if (target.kind === "seat") {
       const c = ctx.centre(t.seatEl(target.id).querySelector(".seat-stack"));
       to = { x: c.x + target.round * 2, y: c.y - target.round * 2 };
-    } else if (target.kind === "me") {
+    } else {
       to = ctx.centre(handCards[target.index]);
       mine.push(card);
-    } else {
-      to = { x: hiddenSpot.x + target.round * 2, y: hiddenSpot.y - target.round * 2 };
     }
     audio.play("deal");
     ctx.fly(card, deck, to, CARD_MS, { spin: target.kind === "me" ? 0 : 360 });

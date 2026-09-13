@@ -43,7 +43,7 @@ lobby → dealing → bidding → reveal(bids) → reveal(card) → bidding → 
 
 ### 2.3 Random bot names
 
-`lib/bots.js` replaces the fixed five-name list with a pool of about forty short first names (mixed origins, none matching a common English word, none longer than 8 characters). `pickBotName(takenNames, randomInt)` returns a uniformly random name not currently used by a seat in the room, or `null` if the pool is exhausted, which cannot happen with a 6-seat cap. Profiles are still assigned in order of addition as before.
+`lib/bots.js` replaces the fixed five-name list with a pool of about forty short first names (mixed origins, none matching a common English word, none longer than 8 characters). `pickBotName(takenNames, randomInt)` returns a uniformly random name not currently used by a seat in the room, or `null` if the pool is exhausted, which cannot happen with a 4-seat cap. Profiles are still assigned in order of addition as before.
 
 The "reserved for bots" name check in `server.js` goes away: names are labels, ids are identity, and a human sharing a name with a bot is merely cosmetic. Bots are marked `isBot` in `state` as today, and the client renders a small chip glyph on their seat.
 
@@ -139,7 +139,7 @@ Five views plus one dialog: **landing**, **join**, **table** (serves lobby, deal
 - The table is an ellipse centred in the viewport, sized with `clamp()` so it fills a phone in portrait (taller than wide) and a laptop in landscape (wider than tall). Felt texture is a CSS radial gradient plus a subtle noise overlay; the rail is a darker wood-toned ring.
 - `seat-layout.js` exports `seatPositions(count)` returning `[{ x, y, angle }]` in percentages of the table box, index 0 always at bottom centre (the recipient), the rest evenly spaced clockwise around the remaining arc, with positions tuned so that 2 players are opposite each other and 6 are evenly spread. It is a pure module so it can be unit-tested in Node.
 - **Seat**: avatar disc (initial letter on a per-seat colour from a fixed 6-colour palette assigned by seat index), name below it (truncated with ellipsis at 10 characters), score chip to the side showing the number, status pip. Seats are absolutely positioned inside the table box.
-- **Centre**: a face-down deck stack whose visual thickness tracks `cardsRemaining` (up to 8 drawn layers), with the count on its top card. Beside it the reference card, large, face up. The hidden-card count is a small badge on the deck itself, a `?` glyph with the number, so nothing suggests those cards live anywhere but inside the deck. Under the table, a row of mini cards for every flipped card so far (scrolls horizontally, newest on the right) and four suit chips with counts.
+- **Centre**: a face-down deck stack whose visual thickness tracks `cardsRemaining` (up to 8 drawn layers), with the count on its top card. Beside it the reference card, large, face up. Under the table, a row of mini cards for every flipped card so far (scrolls horizontally, newest on the right) and four suit chips with counts.
 - **Your hand**: fanned at the bottom edge in front of your seat, cards overlapping, sorted by suit, face up. On phones the fan is tighter.
 - **Dock** (bidding only): a slider from 0 to 100 styled as a track of chips, the current bid as a big number in a ring that drains as the timer runs (the ring uses `timing.bidMs` and `remainingMs`, turns red under 5 s), and one **Lock** button. Locking turns the button into a check and the ring gold. Moving the slider after locking unlocks, as today. The number is also editable directly for keyboard users. The only words on the dock are "Lock" and, once locked, "Locked".
 - **Top bar**: room code as a small pill, `7 / 19` auction counter during play, a sound toggle, **?** for the tutorial, and a **Leave** door glyph. Nothing else.
@@ -148,9 +148,9 @@ Five views plus one dialog: **landing**, **join**, **table** (serves lobby, deal
 
 Played by `table.js` when the planner (section 3.10) returns kind `deal`. Card sprites are DOM elements animated with `transform` between measured positions (FLIP), so the same code works at any viewport size.
 
-1. **Deal** (`(P + 1) × n` cards, one every 70 ms, clockwise starting from the seat to the left of you): a card back flies from the deck to each seat in turn. Yours land in the hand fan and flip face up on arrival with a card-slide sound; other players' cards stack face down at their seat; the `n` hidden cards go to a face-down pile beside the deck. At most 24 cards (2.2 of the v1 spec), so at most about 1.7 s.
+1. **Deal** (`P × n` cards, one every 70 ms, clockwise starting from the seat to the left of you): a card back flies from the deck to each seat in turn. Yours land in the hand fan and flip face up on arrival with a card-slide sound; other players' cards stack face down at their seat. At most 21 cards (2.2 of the v1 spec), so at most about 1.5 s.
 2. **Peek** (1.2 s): nothing moves. You look at your hand. Bots' seats show a brief "looking" tilt.
-3. **Gather** (0.8 s): every dealt card, yours included (they flip face down first) and the hidden pile, flies back into the deck. Shuffle sound. After this step the hidden pile no longer exists; only the `?` badge on the deck remains.
+3. **Gather** (0.8 s): every dealt card, yours included (they flip face down first), flies back into the deck. Shuffle sound.
 4. **Shuffle** (0.8 s): the deck splits into two half-stacks that riffle back together twice. Riffle sound.
 5. **Flip** (0.5 s): the top card flips face up into the reference slot with a flip sound. The hand fan re-deals itself quietly from the bottom edge so your cards are visible again (they are yours to look at for the whole game).
 
@@ -202,7 +202,7 @@ Sound effects, all synthesized:
 `tutorial.js` renders a `<dialog>` with five slides, a dot indicator, Back and Next, keyboard arrows, and swipe on touch. Opened from the **?** button on the landing, the join screen, the lobby, and the table, and by visiting `/how-to-play`. Each slide has a mini table (same seat, card, and chip elements at reduced scale, three seats) and at most two short sentences of caption. Slide animations replay each time the slide is shown.
 
 1. **Deal.** Cards deal to three seats; yours flip up. Caption: "Everyone gets a hand. You see only yours."
-2. **Shuffle back.** All hands and a small hidden stack fly into the deck, it riffles, the top card flips up. Caption: "The hands and some hidden cards go back in. Will the next card match this suit?"
+2. **Shuffle back.** All hands fly into the deck, it riffles, the top card flips up. Caption: "Every hand goes back in. Will the next card match this suit?"
 3. **Bid.** Three bid tags rise to 80, 50, 20; the 80 glows gold. Caption: "Everyone bids 0 to 100 in secret. Highest bid buys the bet from everyone else at that price."
 4. **Pay.** The same two-step as live play: chips fly 80 from the buyer to each of the two others; the card flips; a Match/Miss toggle replays the payout: on a match 100 comes back from each; on a miss nothing does. The slide ends on the net delta badges (`+40 / −20 / −20` or `−160 / +80 / +80`). Caption: "Match: each other player pays the buyer 100. Miss: the buyer keeps nothing."
 5. **Try it.** Three sliders labelled You, A, B, a Match/Miss toggle, and live score deltas beside each slider computed with `GameCore.settle`. Ties show all top bidders as buyers; an all-way tie shows "no trade". Caption: "Move the bids. Notice who wins the auction and who wins the money."
@@ -285,7 +285,7 @@ Client, manual in Chrome before calling it done, on a phone-width viewport and a
 
 - Deal animation needs a server phase, not a client delay, so every client sees the same window and bots do not bid over the animation.
 - Quick play is a server message, not a client script of add-bot × 3 + start, so it is one round trip and cannot be interrupted by a stray joiner half-way.
-- Host removed: with a share-link lobby and at most six seats, the host role was friction with no safety benefit. Room deletion already keyed on connected humans.
+- Host removed: with a share-link lobby and at most four seats, the host role was friction with no safety benefit. Room deletion already keyed on connected humans.
 - Bot names random from a pool rather than generated, so they read as names.
 - Audio synthesized rather than sampled: no assets to license or ship, and it matches the vector look of the table.
 - No background music: a generative lounge pad was specified and built, then removed at the owner's request during implementation (2026-09-13); sound effects stay.

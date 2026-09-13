@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const { seatPositions } = window.SeatLayout;
+const { MAX_PLAYERS } = window.GameCore;
 
 function shake(input) {
   input.focus();
@@ -58,8 +59,8 @@ export function setJoinState(visitor) {
   backdrop.replaceChildren();
   const table = document.createElement("div");
   table.className = "table";
-  const positions = seatPositions(6);
-  for (let i = 0; i < Math.min(6, visitor.playerCount); i++) {
+  const positions = seatPositions(MAX_PLAYERS);
+  for (let i = 0; i < Math.min(MAX_PLAYERS, visitor.playerCount); i++) {
     const seat = document.createElement("div");
     seat.className = "seat";
     seat.style.left = `${positions[i].x}%`;

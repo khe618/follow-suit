@@ -19,7 +19,7 @@ export function cardEl(suit, size, down) {
 
 export function createTable({ send, roomCode, toast, audio }) {
   const els = {
-    seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), hiddenBadge: $("hiddenBadge"), refSlot: $("refSlot"),
+    seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), refSlot: $("refSlot"),
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), seatCount: $("seatCount"), inviteBtn: $("inviteBtn"),
     sprites: $("sprites"), river: $("river"), suitCounts: $("suitCounts"), hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
@@ -239,10 +239,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     const lobby = state.phase === "lobby";
     els.lobbyCentre.hidden = !lobby;
     els.deck.classList.toggle("empty", !lobby && state.cardsRemaining === 0);
-    els.deck.style.boxShadow = deckShadow(lobby ? 24 : state.cardsRemaining);
+    els.deck.style.boxShadow = deckShadow(lobby ? 21 : state.cardsRemaining);
     els.deckCount.textContent = lobby ? "" : String(state.cardsRemaining);
-    els.hiddenBadge.textContent = lobby ? "" : `? ${state.hiddenCount}`;
-    els.hiddenBadge.hidden = lobby;
     els.refSlot.replaceChildren();
     if (!lobby && state.reference) els.refSlot.append(cardEl(state.reference, "big"));
     const last = state.history[state.history.length - 1];

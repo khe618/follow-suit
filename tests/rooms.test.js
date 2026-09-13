@@ -52,7 +52,7 @@ test("join creates a seat with a token", () => {
 test("join is refused when full or when a game is running", () => {
   const { registry } = setup();
   const room = registry.getOrCreate("abcd");
-  for (let i = 0; i < 6; i++) assert.equal(registry.join(room, { name: `P${i}`, ws: fakeWs() }).ok, true);
+  for (let i = 0; i < 4; i++) assert.equal(registry.join(room, { name: `P${i}`, ws: fakeWs() }).ok, true);
   assert.deepEqual(registry.join(room, { name: "Extra", ws: fakeWs() }), { ok: false, error: "room_full" });
   const room2 = registry.getOrCreate("wxyz");
   registry.join(room2, { name: "A", ws: fakeWs() });
@@ -61,13 +61,13 @@ test("join is refused when full or when a game is running", () => {
   assert.deepEqual(registry.join(room2, { name: "C", ws: fakeWs() }), { ok: false, error: "game_in_progress" });
 });
 
-test("bots get unique names, cycling profiles, and only in the lobby", () => {
+test("bots get unique names, ordered profiles, and only in the lobby", () => {
   const { registry } = setup();
   const room = registry.getOrCreate("abcd");
   registry.join(room, { name: "Ann", ws: fakeWs() });
   const names = new Set();
   const keys = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const r = registry.addBot(room);
     assert.equal(r.ok, true);
     names.add(r.seat.name);
@@ -75,11 +75,11 @@ test("bots get unique names, cycling profiles, and only in the lobby", () => {
     assert.equal(r.seat.isBot, true);
     assert.equal(r.seat.resumeToken, null);
   }
-  assert.equal(names.size, 5);
-  assert.deepEqual(keys, ["careful", "fair", "keen", "wild", "careful"]);
+  assert.equal(names.size, 3);
+  assert.deepEqual(keys, ["careful", "fair", "keen"]);
   assert.deepEqual(registry.addBot(room), { ok: false, error: "room_full" });
   assert.equal(registry.removeBot(room, "p2"), true);
-  assert.equal(room.seats.size, 5);
+  assert.equal(room.seats.size, 3);
   assert.equal(registry.removeBot(room, "p1"), false, "cannot remove a human");
   registry.startGame(room);
   assert.equal(registry.addBot(room).ok, false);

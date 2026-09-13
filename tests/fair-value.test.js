@@ -19,38 +19,41 @@ function seeded(seed) {
 }
 
 test("probabilities sum to 1", () => {
-  const p = nextSuitProbabilities({ hand: { spades: 3, hearts: 2, diamonds: 2, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 2, clubs: 0 }, playerCount: 2 });
+  const p = nextSuitProbabilities({ hand: { spades: 4, hearts: 3, diamonds: 2, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 2, clubs: 0 }, playerCount: 2 });
   assert.ok(Math.abs(sum(p) - 1) < 1e-12);
 });
 
-test("uniform hand with no flips gives the pool prior", () => {
-  const p = nextSuitProbabilities({ hand: { spades: 2, hearts: 2, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 });
-  for (const s of SUITS) assert.ok(Math.abs(p[s] - 0.25) < 1e-12, `${s}=${p[s]}`);
+test("suits held in equal numbers are equally likely with no flips", () => {
+  const p = nextSuitProbabilities({ hand: { spades: 3, hearts: 3, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 });
+  assert.ok(Math.abs(p.spades - p.hearts) < 1e-12);
+  assert.ok(Math.abs(p.diamonds - p.clubs) < 1e-12);
+  assert.ok(p.spades > p.diamonds);
 });
 
 test("with no flips the answer equals the closed form (hand + expected unseen) / deck", () => {
-  // Two players, hand 6/1/1/0. The 16 unseen deck cards are a uniform draw
-  // from the 32 pool cards left, which hold 4 spades, 9 hearts, 9 diamonds and
-  // 10 clubs, so E[deck spades] = 6 + 16 * 4/32 = 8 and P(spades) = 8/24.
-  const p = nextSuitProbabilities({ hand: { spades: 6, hearts: 1, diamonds: 1, clubs: 0 }, flips: zero(), playerCount: 2 });
+  // Two players, hand 6/2/2/0. The 10 unseen deck cards (the other hand) are
+  // a uniform draw from the 30 pool cards left, which hold 4 spades, 8 hearts,
+  // 8 diamonds and 10 clubs, so E[deck spades] = 6 + 10 * 4/30 and
+  // P(spades) = that / 20.
+  const p = nextSuitProbabilities({ hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 });
   const expected = {
-    spades: (6 + 16 * 4 / 32) / 24,
-    hearts: (1 + 16 * 9 / 32) / 24,
-    diamonds: (1 + 16 * 9 / 32) / 24,
-    clubs: (0 + 16 * 10 / 32) / 24
+    spades: (6 + 10 * 4 / 30) / 20,
+    hearts: (2 + 10 * 8 / 30) / 20,
+    diamonds: (2 + 10 * 8 / 30) / 20,
+    clubs: (0 + 10 * 10 / 30) / 20
   };
   for (const s of SUITS) assert.ok(Math.abs(p[s] - expected[s]) < 1e-9, `${s}: ${p[s]} vs ${expected[s]}`);
-  assert.ok(Math.abs(p.spades - 1 / 3) < 1e-9);
+  assert.ok(Math.abs(p.spades - 11 / 30) < 1e-9);
 });
 
 test("flipping a suit lowers it", () => {
-  const before = nextSuitProbabilities({ hand: { spades: 2, hearts: 2, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 });
-  const after = nextSuitProbabilities({ hand: { spades: 2, hearts: 2, diamonds: 2, clubs: 2 }, flips: { spades: 4, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 2 });
+  const before = nextSuitProbabilities({ hand: { spades: 3, hearts: 3, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 });
+  const after = nextSuitProbabilities({ hand: { spades: 3, hearts: 3, diamonds: 2, clubs: 2 }, flips: { spades: 4, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 2 });
   assert.ok(after.spades < before.spades);
 });
 
 test("fairValue is 100 * probability of the reference suit", () => {
-  const args = { hand: { spades: 6, hearts: 1, diamonds: 1, clubs: 0 }, flips: zero(), playerCount: 2 };
+  const args = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 };
   const p = nextSuitProbabilities(args);
   assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 100 * p.spades) < 1e-9);
 });
@@ -71,7 +74,7 @@ function monteCarlo({ hand, flips, playerCount }, samples, random) {
     const pool = shuffle(buildPool(), randomInt);
     const hc = countSuits(pool.slice(0, n));
     if (SUITS.some((s) => hc[s] !== hand[s])) continue;
-    const deck = shuffle(pool.slice(0, (playerCount + 1) * n), randomInt);
+    const deck = shuffle(pool.slice(0, playerCount * n), randomInt);
     const fc = countSuits(deck.slice(0, k));
     if (SUITS.some((s) => fc[s] !== flips[s])) continue;
     hits[deck[k]] += 1;
@@ -89,8 +92,8 @@ function monteCarlo({ hand, flips, playerCount }, samples, random) {
 // six-of-a-suit hand is covered by the closed-form test above.
 test("agrees with a seeded Monte Carlo of the dealing procedure", { timeout: 180000 }, () => {
   const cases = [
-    { hand: { spades: 2, hearts: 2, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 },
-    { hand: { spades: 1, hearts: 1, diamonds: 1, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 4 }
+    { hand: { spades: 3, hearts: 3, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 },
+    { hand: { spades: 2, hearts: 1, diamonds: 1, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 4 }
   ];
   const random = seeded(20260913);
   for (const c of cases) {

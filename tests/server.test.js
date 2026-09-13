@@ -128,7 +128,7 @@ test("quick-play in a fresh room seats three bots and deals", async () => {
   assert.equal(s.players.length, 4);
   assert.equal(s.players.filter((p) => p.isBot).length, 3);
   assert.equal(s.players[0].id, joined.playerId, "the human took the first seat");
-  assert.equal(s.hand.length, 4);
+  assert.equal(s.hand.length, 5);
   assert.ok(c.messages.indexOf(joined) < c.messages.indexOf(s), "joined arrives before the first dealing state");
   await c.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
   c.ws.close();
@@ -381,8 +381,8 @@ test("bidding round-trips: locked bids resolve, reveal, then auction 2", async (
   await a.until((m) => m.type === "state" && m.players.length === 3, "bot added", beforeAddBot);
   a.send({ type: "start-game" });
   const start = await a.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
-  assert.equal(start.hand.length, 6);
-  assert.equal(start.cardsRemaining, 23);
+  assert.equal(start.hand.length, 7);
+  assert.equal(start.cardsRemaining, 20);
   a.send({ type: "bid", auction: 1, amount: 40, locked: true });
   b.send({ type: "bid", auction: 1, amount: 10, locked: true });
   const reveal = await a.until((m) => m.type === "state" && m.phase === "reveal", "reveal");

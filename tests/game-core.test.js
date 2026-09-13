@@ -7,10 +7,10 @@ const { SUITS, HAND_SIZES, handSize, buildPool, shuffle, countSuits, deal, resol
 const identityRandom = (n) => n - 1;
 
 test("hand-size table matches the spec", () => {
-  assert.deepEqual(HAND_SIZES, { 2: 8, 3: 6, 4: 4, 5: 4, 6: 3 });
-  assert.equal(handSize(2), 8);
+  assert.deepEqual(HAND_SIZES, { 2: 10, 3: 7, 4: 5 });
+  assert.equal(handSize(2), 10);
   assert.throws(() => handSize(1), RangeError);
-  assert.throws(() => handSize(7), RangeError);
+  assert.throws(() => handSize(5), RangeError);
 });
 
 test("pool is 10 of each suit", () => {
@@ -26,15 +26,14 @@ test("shuffle returns a permutation and does not mutate its input", () => {
   assert.deepEqual(countSuits(out), countSuits(input));
 });
 
-for (const playerCount of [2, 3, 4, 5, 6]) {
+for (const playerCount of [2, 3, 4]) {
   test(`deal(${playerCount}) sizes and multiset invariant`, () => {
     const n = handSize(playerCount);
-    const { hands, hidden, deck } = deal(playerCount);
+    const { hands, deck } = deal(playerCount);
     assert.equal(hands.length, playerCount);
     for (const hand of hands) assert.equal(hand.length, n);
-    assert.equal(hidden.length, n);
-    assert.equal(deck.length, (playerCount + 1) * n);
-    const dealtCounts = countSuits(hands.flat().concat(hidden));
+    assert.equal(deck.length, playerCount * n);
+    const dealtCounts = countSuits(hands.flat());
     assert.deepEqual(countSuits(deck), dealtCounts);
     for (const s of SUITS) assert.ok(dealtCounts[s] <= 10, `${s} exceeds pool`);
   });

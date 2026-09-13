@@ -118,15 +118,10 @@ const SLIDES = [
     }
   },
   {
-    caption: "The hands and some hidden cards go back in. Will the next card match this suit?",
+    caption: "Every hand goes back in. Will the next card match this suit?",
     async run(ctx, m) {
       const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"]);
       const deck = ctx.centre(m.deck);
-      for (let i = 0; i < 2; i++) {
-        const hidden = ctx.spawn("card small down");
-        ctx.put(hidden, { x: deck.x - 60, y: deck.y + 20 - i * 3 });
-        sprites.push(hidden);
-      }
       await ctx.wait(500);
       for (const card of sprites.reverse()) {
         card.className = "card small down";

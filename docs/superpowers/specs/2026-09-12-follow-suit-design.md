@@ -16,29 +16,26 @@ Out of scope for v1: accounts, persistence of results, a fair-value debrief, off
 ### 2.1 Materials
 
 - A **pool** of 40 cards: 10 each of spades, hearts, diamonds, clubs. Cards have no rank. A card is only its suit.
-- Two to six players. Bots count as players.
+- Two to four players. Bots count as players.
 - Scores are points, starting at 0. Scores may go negative. There is no bankroll, no bid cap other than the 0 to 100 range, and no elimination.
 
 ### 2.2 Hand size and deck in play
 
 Each player is dealt `n` cards from the pool, where `n` depends on the player count so that games are roughly the same length:
 
-| Players | Hand size `n` | Deck in play `(P+1)·n` | Auctions |
+| Players | Hand size `n` | Deck in play `P·n` | Auctions |
 | --- | --- | --- | --- |
-| 2 | 8 | 24 | 23 |
-| 3 | 6 | 24 | 23 |
-| 4 | 4 | 20 | 19 |
-| 5 | 4 | 24 | 23 |
-| 6 | 3 | 21 | 20 |
+| 2 | 10 | 20 | 19 |
+| 3 | 7 | 21 | 20 |
+| 4 | 5 | 20 | 19 |
 
 The pool is larger than the deck in play on purpose. If the deck were the whole pool, everyone would know its composition and private hands would carry no information.
 
 ### 2.3 Dealing
 
 1. Shuffle the pool. Deal `n` cards to each player. Each player privately sees their own cards.
-2. Take `n` more cards from the pool as the **hidden cards**. Nobody sees them.
-3. Collect all hands plus the hidden cards, shuffle them together, and place them face down as the **deck**. The rest of the pool is set aside unseen and never used.
-4. Flip the top card of the deck face up. It is the first **reference card**.
+2. Collect all hands, shuffle them together, and place them face down as the **deck**. The rest of the pool is set aside unseen and never used.
+3. Flip the top card of the deck face up. It is the first **reference card**.
 
 Because cards have no rank, what a player learns from their hand is a suit count. The client shows the hand as cards anyway, because that is what people expect to look at.
 
@@ -76,7 +73,7 @@ The game ends after the last deck card is flipped and settled. Final standings u
 ### 2.6 What is public during play
 
 - The reference card, every card flipped so far in order, and per-suit counts of flipped cards.
-- The number of cards remaining in the deck and the number of hidden cards.
+- The number of cards remaining in the deck.
 - Each player's score and, during bidding, whether each player has locked.
 - After each auction: every bid, the buyers, the price, the flipped card, and each player's score change.
 
@@ -116,7 +113,7 @@ A `join` is accepted only while the room is in the lobby phase, or when it carri
 
 ### 3.3 Bots
 
-The host adds bots in the lobby, up to the six-seat cap, so a room can hold up to five bots. Bots live entirely on the server and hold no socket. Each bot has a unique name from a fixed list of five and a bidding profile assigned in order of addition, cycling back to the first profile for the fifth bot. Humans cannot join under a bot's name:
+The host adds bots in the lobby, up to the four-seat cap, so a room can hold up to three bots. Bots live entirely on the server and hold no socket. Each bot has a unique name from a fixed list of five and a bidding profile assigned in order of addition. Humans cannot join under a bot's name:
 
 | Profile | Shade | Noise σ |
 | --- | --- | --- |
@@ -234,7 +231,7 @@ Server → client:
 | `state` | full per-client snapshot, described below |
 | `error` | `message` |
 
-`state` is rebuilt per recipient on every broadcast and contains: room code, phase, `matchId`, `revealStep`, `remainingMs` for the current deadline, host id, players (id, name, isBot, connected, score, `locked` during bidding), reference card, flipped cards in order, cards remaining, hidden-card count, the recipient's own hand, the recipient's own current bid and lock state, the current auction index, the full public history so far, and all hands when the phase is results. The history includes the in-progress auction's entry only once its bids are revealed. A client that reloads mid-game therefore sees exactly the same public record as one that stayed connected.
+`state` is rebuilt per recipient on every broadcast and contains: room code, phase, `matchId`, `revealStep`, `remainingMs` for the current deadline, host id, players (id, name, isBot, connected, score, `locked` during bidding), reference card, flipped cards in order, cards remaining, the recipient's own hand, the recipient's own current bid and lock state, the current auction index, the full public history so far, and all hands when the phase is results. The history includes the in-progress auction's entry only once its bids are revealed. A client that reloads mid-game therefore sees exactly the same public record as one that stayed connected.
 
 A visitor on the name screen, before joining, receives only the room code, phase, player count, and seat cap. There are no spectators.
 
@@ -244,7 +241,7 @@ The client counts the timer down locally from `remainingMs` at receipt rather th
 
 ### 4.6 Fair value (`lib/fair-value.js`)
 
-From one player's point of view, after seeing their hand `H` (a per-suit count summing to `n`), the rest of the deck `U` is a uniformly random `P·n`-subset of the pool with `H` removed. The deck `D = H + U` is then flipped in uniformly random order. Given the flips so far `F` (per-suit counts, `k` cards), the probability the next card is suit `s` is
+From one player's point of view, after seeing their hand `H` (a per-suit count summing to `n`), the rest of the deck `U` (the other players' hands) is a uniformly random `(P−1)·n`-subset of the pool with `H` removed. The deck `D = H + U` is then flipped in uniformly random order. Given the flips so far `F` (per-suit counts, `k` cards), the probability the next card is suit `s` is
 
 ```
 q(U) = MVH(U ; pool − H) · MVH(F ; D)          with D = H + U
@@ -252,7 +249,7 @@ w(U) = q(U) / Σ_V q(V)
 P(next = s | H, F) = Σ_U  w(U) · (D_s − F_s) / (|D| − k)
 ```
 
-where `MVH` is the multivariate hypergeometric probability and both sums run over every composition `U` of `P·n` cards into four suits with `U_s ≤ 10 − H_s` and `D_s ≥ F_s`. There are at most a few thousand compositions, so the exact sum is cheap. Compute `log q` with precomputed log-binomials and normalise with log-sum-exp so the weights stay well-conditioned.
+where `MVH` is the multivariate hypergeometric probability and both sums run over every composition `U` of `(P−1)·n` cards into four suits with `U_s ≤ 10 − H_s` and `D_s ≥ F_s`. There are at most a few thousand compositions, so the exact sum is cheap. Compute `log q` with precomputed log-binomials and normalise with log-sum-exp so the weights stay well-conditioned.
 
 This derivation was checked before the spec was finalised: an enumeration of the formula agrees with a Monte Carlo of the exact dealing procedure to within sampling noise, including a hand with six of one suit.
 
@@ -276,7 +273,7 @@ Environment variables, read once at startup in `server.js`, each with the defaul
 
 All tests run with `npm test` (`node --test`).
 
-- `game-core`: hand-size table matches section 2.2; `deal` produces the right deck size and hands of size `n`, the deck's per-suit counts equal the sum of all hands plus the hidden cards, and no suit exceeds 10 across hands, hidden cards, and the set-aside remainder combined; `settle` reproduces every worked example in section 2.4 exactly, is zero-sum for every buyer/seller split, and returns all-zero deltas with an empty buyer list for a void auction.
+- `game-core`: hand-size table matches section 2.2; `deal` produces the right deck size and hands of size `n`, the deck's per-suit counts equal the sum of all hands, and no suit exceeds 10 across hands and the set-aside remainder combined; `settle` reproduces every worked example in section 2.4 exactly, is zero-sum for every buyer/seller split, and returns all-zero deltas with an empty buyer list for a void auction.
 - `fair-value`: sums to 1 over suits; with no flips and a uniform hand equals the pool prior; a hand heavy in one suit raises that suit; flipping a suit lowers it; agrees with a Monte Carlo of the real dealing procedure within 0.005 for a handful of fixed cases, with the Monte Carlo conditioning by rejection on both the hand and the flips.
 - `game` (state machine, with injected clock and rng): lobby → bidding on start; missing bids resolve to 0 at the deadline; all-locked resolves early and the old deadline firing afterwards has no effect; a lock and the deadline in the same tick settle once; a disconnected player's stored bid survives and counts as locked; stale-auction bids are ignored; reveal steps advance on the injected clock; last auction leads to results with hands revealed; two consecutive full games in one room share no state (history, flips, scores, timers); a void auction produces the specified history entry.
 - `snapshot` secrecy: for every phase, including a resumed client mid-bidding, the per-recipient `state` contains the recipient's own hand and bid, contains the full public history, and does not contain the deck, any other hand, any other current bid amount before reveal, or any fair-value figure. Asserted as both required and forbidden keys.
@@ -296,4 +293,4 @@ Render web service defined by `render.yaml` in the repo, auto-deploying from `ma
 - Bids are public after every auction so that bids act as signals and price discovery has something to work with.
 - Bots use only their hand and the flips, not other players' bids. Reading bids is a later improvement.
 - No fair-value debrief in v1, and no fair-value code in the browser. Deferred, not rejected.
-- Hidden cards stay in the design even though the pool already exceeds the deck. They keep the endgame from being fully countable by pooling everyone's bids.
+- No hidden cards: the deck is exactly the dealt hands. An earlier draft added `n` unseen cards to keep the endgame from being fully countable by pooling everyone's bids; dropped for simpler rules, since the set-aside pool remainder already keeps the deck composition uncertain.

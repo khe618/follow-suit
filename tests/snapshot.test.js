@@ -17,7 +17,7 @@ function makeRoom() {
 }
 
 // Exact allowlists. Anything not listed here is a leak, whatever it is called.
-const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
+const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
 const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
 const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
 const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "price", "void", "flipped", "matched", "deltas"].sort();
@@ -41,10 +41,10 @@ test("dealing snapshot has own hand, reference, null auction, timing, and no dec
   assert.equal(s.phase, "dealing");
   assert.equal(s.revealStep, null);
   assert.equal(s.auctionIndex, null);
-  assert.equal(s.hand.length, 6);
+  assert.equal(s.hand.length, 7);
   assert.ok(s.reference);
   assert.equal(s.flipped.length, 1);
-  assert.equal(s.cardsRemaining, 23);
+  assert.equal(s.cardsRemaining, 20);
   assert.equal(s.remainingMs, 9500);
   assert.deepEqual(s.timing, { dealMs: 9500, bidMs: 30000, revealBidsMs: 4500, revealCardMs: 4000 });
   assert.equal(s.myBid, null);
@@ -71,7 +71,7 @@ test("lobby snapshot lists seats and hides nothing sensitive", () => {
   assert.equal(s.players[2].isBot, true);
   assert.equal(s.hand, null);
   assert.equal(s.minPlayers, 2);
-  assert.equal(s.maxPlayers, 6);
+  assert.equal(s.maxPlayers, 4);
   assertShape(s);
   const visitor = buildState(room, null);
   assert.deepEqual(Object.keys(visitor).sort(), VISITOR_KEYS);
@@ -111,16 +111,15 @@ test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
   assert.equal(s1.phase, "bidding");
   assert.equal(s1.auctionIndex, 1);
   assert.equal(s1.remainingMs, 30000);
-  assert.equal(s1.hand.length, 6);
+  assert.equal(s1.hand.length, 7);
   assert.deepEqual(s1.hand, game.players[0].hand);
   assert.equal(s1.myBid, null);
   assert.equal(s1.players.find((p) => p.id === "p2").locked, true);
   assert.equal(s1.players.find((p) => p.id === "p1").locked, false);
   assert.equal(s1.flipped.length, 1);
   assert.equal(s1.reference, game.deck[0]);
-  assert.equal(s1.cardsRemaining, 23);
-  assert.equal(s1.hiddenCount, 6);
-  assert.equal(s1.handSize, 6);
+  assert.equal(s1.cardsRemaining, 20);
+  assert.equal(s1.handSize, 7);
   assertShape(s1);
   const s2 = buildState(room, "p2");
   assert.deepEqual(s2.myBid, { amount: 33, locked: true });
@@ -169,7 +168,7 @@ test("results snapshot reveals every hand", () => {
   }
   const s = buildState(room, "p2");
   assert.equal(s.phase, "results");
-  for (const p of s.players) assert.equal(p.hand.length, 6);
-  assert.equal(s.history.length, 23);
+  for (const p of s.players) assert.equal(p.hand.length, 7);
+  assert.equal(s.history.length, 20);
   assertShape(s);
 });

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { BOT_NAMES, BOT_PROFILES, pickBotName, botProfile, computeBotBid, botDelayMs } = require("../lib/bots.js");
 const { fairValue } = require("../lib/fair-value.js");
 
-const situation = { hand: { spades: 6, hearts: 1, diamonds: 1, clubs: 0 }, flips: { spades: 0, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 2, reference: "spades" };
+const situation = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: { spades: 0, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 2, reference: "spades" };
 
 test("bot names: a pool of 40 short names, drawn at random from the free ones", () => {
   assert.equal(BOT_NAMES.length, 40);
