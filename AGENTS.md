@@ -24,7 +24,7 @@ No build step, no bundler, no linter. Edit and reload. `server.js` reads
 `public/index.html` once at startup, so restart after editing it.
 
 Environment variables (defaults in `server.js`): `PORT`, `BID_MS`,
-`REVEAL_BIDS_MS`, `REVEAL_CARD_MS`, `RESUME_TTL_MS`.
+`REVEAL_BIDS_MS`, `REVEAL_CARD_MS`, `RESUME_TTL_MS`, `HEARTBEAT_MS`.
 
 ## Architecture
 

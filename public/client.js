@@ -291,6 +291,9 @@
   function renderBidPanel() {
     if (resyncDraft || draft.auction !== state.auctionIndex) {
       resyncDraft = false;
+      // A debounce armed at the end of the previous auction must not fire a
+      // stale bid into this one.
+      clearTimeout(bidSendTimer);
       draft = {
         auction: state.auctionIndex,
         amount: state.myBid ? state.myBid.amount : 0,

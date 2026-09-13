@@ -21,6 +21,7 @@ const CONFIG = {
   revealCardMs: envInt("REVEAL_CARD_MS", 3000)
 };
 const RESUME_TTL_MS = envInt("RESUME_TTL_MS", 10 * 60 * 1000);
+const HEARTBEAT_MS = envInt("HEARTBEAT_MS", 30000);
 
 // Crash resistance: one bad socket message must not take every room down.
 // Each message and timer is also wrapped individually (see below), so this is
@@ -104,9 +105,36 @@ app.use((_req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+// `ws`'s default maxPayload is 100 MiB; one oversized frame would stall the
+// event loop for every room. Cap it well above any real message.
+const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 16 * 1024 });
+
+// Half-open connections (a phone dropping off the network without a FIN)
+// otherwise keep a seat marked connected forever. Ping every HEARTBEAT_MS and
+// terminate anyone who didn't pong since the last sweep.
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, HEARTBEAT_MS);
+heartbeat.unref();
+wss.on("close", () => clearInterval(heartbeat));
 
 wss.on("connection", (ws, req) => {
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+  // Without this, ws's own maxPayload violation (an unhandled "error" event)
+  // would bubble up as an uncaughtException instead of a normal, expected close.
+  ws.on("error", (err) => {
+    console.error("[server] socket error:", err);
+  });
   const url = new URL(req.url || "/", "http://localhost");
   const code = String(url.searchParams.get("room") || "").toLowerCase();
   if (!registry.isValidCode(code)) {

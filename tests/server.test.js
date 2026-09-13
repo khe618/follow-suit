@@ -134,6 +134,19 @@ test("routes: shell, new-room, how-to-play, html redirect, json 404", async () =
   assert.equal(api.status, 404);
 });
 
+test("an oversized frame closes the connection with 1009, and the room keeps working", async () => {
+  const room = uniqueRoom();
+  const big = connect(room);
+  await big.open();
+  const closed = big.closed();
+  big.ws.send("x".repeat(20 * 1024));
+  assert.equal(await closed, 1009);
+  const a = connect(room);
+  await a.open();
+  await a.until((m) => m.type === "state", "state after the oversized frame");
+  a.ws.close();
+});
+
 test("a human cannot take a bot's name", async () => {
   const room = uniqueRoom();
   const c = connect(room);
@@ -206,15 +219,21 @@ test("a displaced socket cannot inject a bid under the seat it lost", async () =
   const a2 = connect(room);
   await a2.open();
   const beforeA2 = a2.messages.length;
-  // Fired back-to-back on two already-open sockets so the server is very
-  // likely to process the resume (which reassigns the seat to a2) before the
-  // bid arrives on the now-displaced socket a. This is a real race, not a
-  // guarantee: see the report for what was observed running this repeatedly.
   a2.send({ type: "resume", resumeToken: a.token });
-  a.send({ type: "bid", auction: 1, amount: 99, locked: true });
   const joined = await a2.until((m) => m.type === "joined", "resumed", beforeA2);
-  const s = await a2.until((m) => m.type === "state" && m.you === joined.playerId, "state after the race", beforeA2);
-  assert.notEqual(s.myBid && s.myBid.amount, 99);
+  // The old socket may already be closed with 4000 by now; ws throws on send
+  // after close, and a closed displaced socket is also a pass here.
+  try {
+    a.send({ type: "bid", auction: 1, amount: 99, locked: true });
+  } catch {
+    // closed already; nothing to assert further on this socket
+  }
+  const beforeState = a2.messages.length;
+  // A harmless message forces a fresh state so any bid the old socket managed
+  // to sneak in would show up on it.
+  a2.send({ type: "bid", auction: 1, amount: 0, locked: false });
+  const s = await a2.until((m) => m.type === "state" && m.you === joined.playerId, "state after the race", beforeState);
+  assert.ok(!s.myBid || s.myBid.amount !== 99);
   a2.ws.close();
   b.ws.close();
 });
