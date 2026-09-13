@@ -1,7 +1,8 @@
 import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
+import { holdSpot } from "./timelines.js";
 
-const { settle, SUIT_SYMBOLS } = window.GameCore;
+const { settle, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, HAND_SIZES } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
@@ -27,12 +28,17 @@ function miniTable() {
   centre.innerHTML = `<div class="deck"><span class="deck-count"></span></div><div class="ref-slot"></div><div class="price-badge" hidden></div>`;
   const sprites = document.createElement("div");
   sprites.className = "sprite-layer";
+  // Sprites a slide wants to outlive its animation run move here: same
+  // origin as the sprite layer, above the seats and the centre.
+  const keep = document.createElement("div");
+  keep.className = "keep-layer";
   const flash = document.createElement("div");
   flash.className = "rail-flash";
-  table.append(seats, centre, sprites, flash);
+  table.append(seats, centre, keep, sprites, flash);
   return {
-    table, seatEls, sprites, flash,
+    table, seatEls, sprites, keep, flash,
     deck: centre.querySelector(".deck"),
+    deckCount: centre.querySelector(".deck-count"),
     refSlot: centre.querySelector(".ref-slot"),
     price: centre.querySelector(".price-badge"),
     tag: (i) => seatEls[i].querySelector(".bid-tag"),
@@ -47,15 +53,19 @@ function miniTable() {
   };
 }
 
-async function dealTo(ctx, m, count, mySuits) {
+// Deals `count` cards to each seat: the bots' land face down beside their
+// avatars, yours face up in a row beside yours. `onCard` fires per card
+// dealt (slide 1 counts the pool down with it).
+async function dealTo(ctx, m, count, mySuits, onCard = () => {}) {
   const deck = ctx.centre(m.deck);
   const sprites = [];
+  const mineSpot = holdSpot(ctx, m.avatar(0), m.table);
   for (let round = 0; round < count; round++) {
     for (let i = 1; i < 3; i++) {
       const card = ctx.spawn("card small down");
       ctx.put(card, deck);
-      const c = ctx.centre(m.stack(i));
-      const stackTarget = { x: c.x + round * 3, y: c.y - round * 3 };
+      const stackTarget = holdSpot(ctx, m.avatar(i), m.table, round);
+      onCard();
       ctx.fly(card, deck, stackTarget, 300, { spin: 360 });
       // Bake the resting position into the sprite's inline transform now
       // (it stays invisible under the running WAAPI animation) so the card
@@ -68,19 +78,41 @@ async function dealTo(ctx, m, count, mySuits) {
     }
     const mine = ctx.spawn("card small down");
     ctx.put(mine, deck);
-    const c = ctx.centre(m.avatar(0));
-    const mineTarget = { x: c.x - 24 + round * 48, y: c.y - 60 };
+    const mineTarget = { x: mineSpot.x + round * (mine.offsetWidth + 4), y: mineSpot.y };
+    onCard();
     ctx.fly(mine, deck, mineTarget, 300).then(() => {
       if (!ctx.alive()) return;
       mine.className = `card small ${mySuits[round]}`;
       mine.textContent = SUIT_SYMBOLS[mySuits[round]];
     });
     ctx.put(mine, mineTarget);
-    sprites.push(mine);
+    sprites.push({ el: mine, suit: mySuits[round] });
     await ctx.wait(80);
   }
   await ctx.wait(320);
-  return sprites;
+  // Your faces are set here too, so a run that ends before the last flight's
+  // callback (slide 1 reparents its sprites) still shows them face up.
+  return sprites.map((s) => {
+    if (s.el) {
+      s.el.className = `card small ${s.suit}`;
+      s.el.textContent = SUIT_SYMBOLS[s.suit];
+      return s.el;
+    }
+    return s;
+  });
+}
+
+// Turn the top card of the deck over onto the reference slot, then let the
+// slot's own card take over.
+async function turnReference(ctx, m, suit, ms = 600) {
+  const top = ctx.spawn("card big down");
+  ctx.put(top, ctx.centre(m.deck));
+  await ctx.turn(top, ctx.centre(m.deck), ctx.centre(m.refSlot), ms, () => {
+    top.className = `card big ${suit}`;
+    top.textContent = SUIT_SYMBOLS[suit];
+  });
+  m.refSlot.replaceChildren(cardEl(suit, "big"));
+  top.remove();
 }
 
 async function chips(ctx, m, from, to, count = 5) {
@@ -102,18 +134,30 @@ async function showTag(ctx, m, i, value, gold) {
   await ctx.animate(tag, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
 }
 
+const POOL = SUITS.length * POOL_PER_SUIT;
+const handSizes = Object.keys(HAND_SIZES).map((n) => `<b>${HAND_SIZES[n]}</b> with ${n}`).join(", ");
 const SLIDES = [
   {
-    caption: "Everyone gets a hand. You see only yours.",
+    caption: "Everyone is dealt a hand from the pool and sees only their own.",
+    facts: [
+      `Pool: <b>${POOL_PER_SUIT}</b> of each suit ${SUITS.map((s) => `<span class="${s}">${SUIT_SYMBOLS[s]}</span>`).join("")}, ${POOL} cards`,
+      `Cards each: ${handSizes} players`,
+      "Goal: <b>most points</b> when the deck runs out"
+    ],
     async run(ctx, m) {
       // dealTo's cards live in the anim run's sprite group, which is torn
       // down (and removed from the DOM) as soon as this timeline settles —
       // success or not. Slides 2 and 4 already replace their sprites with
       // persistent nodes before they finish; this slide has no such
-      // replacement step, so without reparenting, the dealt hand would
-      // flash in and then vanish for the rest of the slide's hold time.
-      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"]);
-      m.table.append(...sprites);
+      // replacement step, so the dealt hand moves to the keep layer (above
+      // the seats) instead of vanishing for the rest of the slide's hold.
+      let left = POOL;
+      m.deckCount.textContent = String(left);
+      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"], () => {
+        left -= 1;
+        m.deckCount.textContent = String(left);
+      });
+      m.keep.append(...sprites);
       await ctx.wait(1200);
     }
   },
@@ -141,15 +185,7 @@ const SLIDES = [
       }
       left.remove();
       right.remove();
-      const top = ctx.spawn("card big down");
-      ctx.put(top, deck);
-      await ctx.until(ctx.fly(top, deck, ctx.centre(m.refSlot), 300));
-      await ctx.flip(top, 400, () => {
-        top.className = "card big spades";
-        top.textContent = SUIT_SYMBOLS.spades;
-      });
-      m.refSlot.replaceChildren(cardEl("spades", "big"));
-      top.remove();
+      await turnReference(ctx, m, "spades");
       await ctx.wait(1000);
     }
   },
@@ -192,17 +228,8 @@ const SLIDES = [
       m.score(1, 80);
       m.score(2, 80);
       await ctx.wait(500);
-      const top = ctx.spawn("card big down");
-      const deck = ctx.centre(m.deck);
-      ctx.put(top, deck);
-      await ctx.until(ctx.fly(top, deck, ctx.centre(m.refSlot), 250));
       const suit = matched ? "spades" : "hearts";
-      await ctx.flip(top, 300, () => {
-        top.className = `card big ${suit}`;
-        top.textContent = SUIT_SYMBOLS[suit];
-      });
-      m.refSlot.replaceChildren(cardEl(suit, "big"));
-      top.remove();
+      await turnReference(ctx, m, suit, 550);
       m.flash.className = `rail-flash ${matched ? "good" : "bad"}`;
       await ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 });
       if (matched) {
@@ -244,6 +271,7 @@ export function createTutorial(dialog, { audio }) {
         <button type="button" class="chip-btn small" data-outcome="miss" aria-pressed="false">Miss</button>
       </div>
       <p class="tut-caption" aria-live="polite"></p>
+      <ul class="tut-facts" hidden></ul>
       <div class="tut-nav">
         <button type="button" class="chip-btn tut-back">Back</button>
         <div class="tut-dots"></div>
@@ -252,6 +280,7 @@ export function createTutorial(dialog, { audio }) {
     </div>`;
   const stage = dialog.querySelector(".tut-stage");
   const caption = dialog.querySelector(".tut-caption");
+  const facts = dialog.querySelector(".tut-facts");
   const controls = dialog.querySelector(".tut-controls");
   const dots = dialog.querySelector(".tut-dots");
   const back = dialog.querySelector(".tut-back");
@@ -333,6 +362,8 @@ export function createTutorial(dialog, { audio }) {
     if (anim) anim.cancelAll();
     stage.replaceChildren();
     caption.textContent = slide.caption;
+    facts.hidden = !slide.facts;
+    facts.innerHTML = (slide.facts || []).map((f) => `<li>${f}</li>`).join("");
     controls.hidden = !slide.controls;
     back.disabled = index === 0;
     next.textContent = index === SLIDES.length - 1 ? "Done" : "Next";

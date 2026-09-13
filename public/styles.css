@@ -64,7 +64,6 @@ p { margin: 6px 0; line-height: 1.4; }
   .topbar { gap: 6px; padding: 8px 10px; }
   .topbar-actions { gap: 4px; }
   .icon-btn.labeled { padding: 0 10px; font-size: 0.82rem; }
-  .topbar:has(#roomPill:not([hidden])) .brand { display: none; }
 }
 
 /* buttons and inputs */
@@ -138,6 +137,8 @@ label { font-size: 0.85rem; color: var(--muted); }
 }
 .table::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.06'/></svg>"); pointer-events: none; mix-blend-mode: overlay; }
 @media (min-width: 720px) { .table { aspect-ratio: 16 / 10; } }
+/* With the log above it, the table gives up width so the memo and dock still fit below. */
+.table-view:has(#log:not([hidden])) .table { width: min(100%, 900px, max(520px, (100dvh - 430px) * 1.6)); }
 .seats, .sprite-layer { position: absolute; inset: 0; }
 .sprite-layer { pointer-events: none; z-index: 5; overflow: visible; }
 .sprite-layer .sprites { position: absolute; inset: 0; }
@@ -176,7 +177,6 @@ label { font-size: 0.85rem; color: var(--muted); }
 .price-badge { position: absolute; left: 50%; top: -34px; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px; background: var(--gold); color: #1a1408; font-weight: 800; font-family: ui-monospace, Menlo, Consolas, monospace; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); white-space: nowrap; }
 .price-badge.void { background: var(--line); color: var(--muted); }
 .lobby-centre { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.seat-count { color: var(--muted); font-size: 0.9rem; }
 
 /* cards */
 .card { display: inline-flex; align-items: center; justify-content: center; background: var(--card-face); color: var(--black); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); font-weight: 700; user-select: none; border: 2px solid #fff; }
@@ -187,9 +187,20 @@ label { font-size: 0.85rem; color: var(--muted); }
 .card.mini { width: 24px; height: 34px; font-size: 0.9rem; border-radius: 4px; border-width: 1px; }
 .card.current { outline: 3px solid var(--gold); }
 
-/* river */
-.river-row { width: min(96vw, 900px); display: flex; align-items: center; gap: 10px; }
-.river { flex: 1; display: flex; gap: 3px; overflow-x: auto; padding: 4px 2px; scrollbar-width: thin; min-height: 40px; }
+/* log: cards flipped so far and the bids made on each */
+.log { width: min(100%, 900px); display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.log-scroll { width: 100%; max-height: 150px; overflow-y: auto; scrollbar-width: thin; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0, 0, 0, 0.3); }
+.log-table { width: 100%; border-collapse: collapse; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; }
+.log-table th, .log-table td { padding: 2px 8px; text-align: center; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.log-table th { position: sticky; top: 0; background: #0f2119; color: var(--muted); font-weight: 600; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; overflow: hidden; text-overflow: ellipsis; max-width: 7em; }
+.log-table th.you { color: var(--gold-2); }
+.log-table th:first-child, .log-table td.log-card { width: 3em; text-align: left; padding-left: 10px; }
+.log-table td.log-card .card { vertical-align: middle; }
+.log-table td.buyer { color: #1a1408; font-weight: 800; background: var(--gold); border-radius: 6px; box-shadow: inset 0 0 0 2px var(--felt); }
+.log-table td.pending { color: var(--muted); }
+.log-table tr.current td { background: rgba(224, 179, 84, 0.08); }
+.log-table tr.current td.buyer { background: var(--gold); }
+.log-table tbody tr:last-child td { border-bottom: none; }
 .suit-counts { display: flex; gap: 4px; }
 .suit-chip { padding: 2px 7px; border-radius: 999px; background: var(--felt-2); border: 1px solid var(--line); font-size: 0.8rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .suit-chip.hearts, .suit-chip.diamonds { color: #ff8a7a; }
@@ -284,6 +295,13 @@ td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
 .mini-table .card.big { width: 54px; height: 76px; font-size: 2rem; }
 .mini-table .card.small { width: 34px; height: 48px; font-size: 1.2rem; }
 .tut-caption { text-align: center; font-size: 1.05rem; min-height: 2.8em; margin: 0; }
+.tut-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.tut-facts li { padding: 4px 10px; border-radius: 999px; background: var(--felt); border: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); }
+.tut-facts li b { color: var(--ink); font-weight: 700; }
+.tut-facts .hearts, .tut-facts .diamonds { color: #ff8a7a; }
+.tut-facts .spades, .tut-facts .clubs { color: var(--ink); }
+.keep-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.keep-layer .card { position: absolute; margin: 0; }
 .tut-controls { display: flex; justify-content: center; gap: 8px; }
 .tut-controls .chip-btn.small { padding: 6px 14px; font-size: 0.9rem; }
 .tut-controls .chip-btn.small { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 3px 0 var(--ledge); }

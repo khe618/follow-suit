@@ -91,12 +91,37 @@ export function createAnim(layer) {
             await sctx.wait(150);
             return;
           }
-          const a = sctx.track(el.animate([{ transform: "rotateY(0deg)" }, { transform: "rotateY(90deg)" }], { duration: ms / 2, easing: "ease-in", fill: "forwards", composite: "add" }));
+          const a = sctx.track(el.animate([{ transform: "perspective(600px) rotateY(0deg)" }, { transform: "perspective(600px) rotateY(90deg)" }], { duration: ms / 2, easing: "ease-in", fill: "forwards", composite: "add" }));
           await sctx.until(a.finished.catch(() => {}));
           onHalf();
-          const b = sctx.track(el.animate([{ transform: "rotateY(90deg)" }, { transform: "rotateY(0deg)" }], { duration: ms / 2, easing: "ease-out", composite: "add" }));
+          const b = sctx.track(el.animate([{ transform: "perspective(600px) rotateY(-90deg)" }, { transform: "perspective(600px) rotateY(0deg)" }], { duration: ms / 2, easing: "ease-out", composite: "add" }));
           a.cancel();
           await sctx.until(b.finished.catch(() => {}));
+        },
+        // Turn a card over on the way from `from` to `to`, the way a dealer
+        // flips the top card of the deck onto the table: it lifts, travels,
+        // and rotates edge-on at the midpoint, where onHalf swaps its face,
+        // then settles face up at `to`. Never mirrors the face (the second
+        // half rotates from -90 back to 0). Awaited; cancellation-safe like
+        // ctx.animate. Reduced motion: appear at `to` with the new face.
+        async turn(el, from, to, ms, onHalf, { lift = 1.12 } = {}) {
+          const w = el.offsetWidth;
+          const h = el.offsetHeight;
+          const at = (p, deg, s) => `translate(${p.x - w / 2}px, ${p.y - h / 2}px) perspective(600px) rotateY(${deg}deg) scale(${s})`;
+          if (reduced()) {
+            onHalf();
+            el.style.transform = at(to, 0, 1);
+            await sctx.until(settled(el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, fill: "forwards" })));
+            return;
+          }
+          const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - 8 };
+          const a = sctx.track(el.animate([{ transform: at(from, 0, 1) }, { transform: at(mid, 90, lift) }], { duration: ms / 2, easing: "ease-in", fill: "forwards" }));
+          await sctx.until(a.finished.catch(() => {}));
+          onHalf();
+          const b = sctx.track(el.animate([{ transform: at(mid, -90, lift) }, { transform: at(to, 0, 1) }], { duration: ms / 2, easing: "ease-out", fill: "forwards" }));
+          a.cancel();
+          await sctx.until(b.finished.catch(() => {}));
+          el.style.transform = at(to, 0, 1);
         }
       };
       return timeline(ctx);

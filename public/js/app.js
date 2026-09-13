@@ -111,8 +111,6 @@ function enterRoom(code) {
   if (table) table.dispose();
   roomCode = code;
   state = null;
-  $("roomPill").textContent = code.toUpperCase();
-  $("roomPill").hidden = false;
   const myTable = createTable({ send: (payload) => myNet.send(payload), roomCode: code, toast, audio });
   const myNet = createNet({
     roomCode: code,
@@ -199,7 +197,6 @@ function route() {
     return;
   }
   showView("landingView");
-  $("roomPill").hidden = true;
   if (location.pathname === "/how-to-play" && window.openTutorial) window.openTutorial(null);
 }
 

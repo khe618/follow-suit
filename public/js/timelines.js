@@ -2,7 +2,7 @@ const { SUIT_SYMBOLS } = window.GameCore;
 const { paymentStreams, displayScores, payoutBaseline } = window.Transitions;
 
 // Worst case (24 cards, 8 of them yours): 24*70 + 350 + (8*50 + 400) + 2000 + 400
-// + (24*18 + 350) + 800 + 250 + 400 + 250 ≈ 8100 ms.
+// + (24*18 + 350) + 800 + 620 + 250 ≈ 8100 ms.
 // Transitions.DEAL_TIMELINE_MS (8500) must stay above this sum.
 const CARD_MS = 350;
 const DEAL_GAP_MS = 70;
@@ -12,7 +12,7 @@ const BIDS_PAUSE_MS = 1400;
 const GATHER_MS = 800;
 const SHUFFLE_MS = 800;
 const FLIP_MS = 400;
-const REF_FLIGHT_MS = 250;
+const TURN_MS = 620;
 const HAND_MS = 250;
 const CHIPS_PER_STREAM = 6;
 const CHIP_GAP_MS = 60;
@@ -28,6 +28,17 @@ function rawScores(state) {
   const out = {};
   for (const p of state.players) out[p.id] = p.score;
   return out;
+}
+
+// Where a seat's dealt cards rest: beside the avatar, on the side facing
+// the middle of the table, so the avatar and name stay readable. Later
+// rounds stack a little up and out. The top seat's cards are kept inside
+// the table rather than poking above it.
+export function holdSpot(ctx, avatarEl, tableEl, round = 0) {
+  const c = ctx.centre(avatarEl);
+  const t = ctx.centre(tableEl);
+  const side = c.x < t.x + 1 ? 1 : -1;
+  return { x: c.x + side * (c.w * 0.75 + round * 2), y: Math.max(c.y - c.h * 0.55, c.h * 0.85) - round * 2 };
 }
 
 // Six chips per buyer→seller (or seller→buyer) pair, all streams in parallel,
@@ -89,8 +100,7 @@ export async function dealTimeline(ctx, t, state) {
     sprites.push(card);
     let to;
     if (target.kind === "seat") {
-      const c = ctx.centre(t.seatEl(target.id).querySelector(".seat-stack"));
-      to = { x: c.x + target.round * 2, y: c.y - target.round * 2 };
+      to = holdSpot(ctx, t.seatEl(target.id).querySelector(".avatar"), els.table, target.round);
     } else {
       to = ctx.centre(handCards[target.index]);
       mine.push(card);
@@ -157,13 +167,12 @@ export async function dealTimeline(ctx, t, state) {
     await ctx.wait(150);
   }
 
-  // Flip the top card into the reference slot.
+  // Turn the top card over into the reference slot.
   const top = ctx.spawn("card big down");
   ctx.put(top, deck);
   const slot = ctx.centre(els.refSlot);
-  await ctx.until(ctx.fly(top, deck, slot, REF_FLIGHT_MS));
   audio.play("flip");
-  await ctx.flip(top, FLIP_MS, () => {
+  await ctx.turn(top, deck, slot, TURN_MS, () => {
     top.className = `card big ${state.reference}`;
     top.textContent = SUIT_SYMBOLS[state.reference];
   });
@@ -214,21 +223,25 @@ export async function revealCardTimeline(ctx, t, state) {
   const fromScores = payoutBaseline(state);
   for (const id of ids) t.showScore(id, fromScores[id]);
 
-  // Flip: the state layer already shows the new reference; hide it and fly a
-  // face-down sprite from the deck into the slot, flipping it on arrival.
+  // Flip: the state layer already shows the new reference. Hide it, stand in
+  // the old reference as a sprite so the slot never goes empty, and turn the
+  // top card of the deck over onto it; the state layer takes over on landing.
   els.refSlot.style.visibility = "hidden";
   const deck = ctx.centre(els.deck);
   const slot = ctx.centre(els.refSlot);
+  const old = ctx.spawn(`card big ${last.reference}`, SUIT_SYMBOLS[last.reference]);
+  ctx.put(old, slot);
   const top = ctx.spawn("card big down");
   ctx.put(top, deck);
-  await ctx.until(ctx.fly(top, deck, slot, REF_FLIGHT_MS));
+  await ctx.wait(120);
   audio.play("flip");
-  await ctx.flip(top, FLIP_MS, () => {
+  await ctx.turn(top, deck, slot, TURN_MS, () => {
     top.className = `card big ${last.flipped}`;
     top.textContent = SUIT_SYMBOLS[last.flipped];
   });
   els.refSlot.style.visibility = "";
   top.remove();
+  old.remove();
   els.flash.className = `rail-flash ${last.matched ? "good" : "bad"}`;
   audio.play(last.matched ? "match" : "miss");
   t.announce(`${suitName(last.flipped)}, ${last.matched ? "match" : "miss"}`);

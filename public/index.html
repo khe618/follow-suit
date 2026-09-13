@@ -12,8 +12,6 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/">Follow Suit</a>
-    <span id="roomPill" class="pill mono" hidden></span>
-    <span id="auctionPill" class="pill mono" hidden></span>
     <span id="connPill" class="pill warn" hidden>reconnecting</span>
     <div class="topbar-actions">
       <button type="button" id="sfxBtn" class="icon-btn" aria-label="Sound effects on" aria-pressed="true">🔊</button>
@@ -47,6 +45,15 @@
     </section>
 
     <section id="tableView" class="view table-view" hidden>
+      <div id="log" class="log" hidden>
+        <div class="log-scroll">
+          <table class="log-table" aria-label="Cards and bids so far">
+            <thead><tr id="logHead"></tr></thead>
+            <tbody id="logBody"></tbody>
+          </table>
+        </div>
+        <div id="suitCounts" class="suit-counts"></div>
+      </div>
       <div id="table" class="table">
         <div id="seats" class="seats"></div>
         <div id="centre" class="centre">
@@ -55,13 +62,11 @@
           <div id="priceBadge" class="price-badge" hidden></div>
           <div id="lobbyCentre" class="lobby-centre" hidden>
             <button type="button" id="dealBtn" class="chip-btn primary">Deal</button>
-            <span id="seatCount" class="seat-count mono"></span>
             <button type="button" id="inviteBtn" class="chip-btn" aria-label="Copy invite link">Invite</button>
           </div>
         </div>
         <div id="sprites" class="sprite-layer" aria-hidden="true"></div>
       </div>
-      <div class="river-row"><div id="river" class="river"></div><div id="suitCounts" class="suit-counts"></div></div>
       <div id="hand" class="hand">
         <div id="handFan" class="hand-fan" aria-hidden="true"></div>
         <div id="handMemo" class="hand-memo" aria-label="Your hand" hidden></div>

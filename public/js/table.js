@@ -20,10 +20,11 @@ export function cardEl(suit, size, down) {
 export function createTable({ send, roomCode, toast, audio }) {
   const els = {
     seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), refSlot: $("refSlot"),
-    priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), seatCount: $("seatCount"), inviteBtn: $("inviteBtn"),
-    sprites: $("sprites"), river: $("river"), suitCounts: $("suitCounts"), hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
+    priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), inviteBtn: $("inviteBtn"),
+    sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
+    hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
-    historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), auctionPill: $("auctionPill"), table: $("table")
+    historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table")
   };
   const seatEls = new Map();
   let state = null;
@@ -77,10 +78,9 @@ export function createTable({ send, roomCode, toast, audio }) {
   const handle = { els, audio, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, showScore, announce };
 
   function drawAll() {
-    renderTopbar();
     renderSeats();
     renderCentre();
-    renderRiver();
+    renderLog();
     renderHand();
     renderDock();
     renderResults();
@@ -97,7 +97,6 @@ export function createTable({ send, roomCode, toast, audio }) {
       el.querySelector(".seat-status").className = "seat-status" + (state.phase === "bidding" && p.connected ? (p.locked ? " locked" : " thinking") : "");
     }
     if (state.phase === "bidding") renderDock();
-    renderTopbar();
   }
 
   // A real timeline error (not cancellation) must not strand the table.
@@ -253,18 +252,52 @@ export function createTable({ send, roomCode, toast, audio }) {
     if (lobby) renderLobbyCentre(els, state);
   }
 
-  function renderRiver() {
-    els.river.replaceChildren();
-    if (state.phase === "lobby") {
-      els.suitCounts.replaceChildren();
-      return;
+  // The log above the table: one row per card flipped so far, with the bid
+  // every player made while it was the reference. The current reference gets
+  // a pending row until its bids are revealed. The deal timeline empties the
+  // rows so the first reference is not given away before it is flipped.
+  function renderLog() {
+    const show = state.phase !== "lobby";
+    els.log.hidden = !show;
+    if (!show) return;
+    const players = orderedPlayers(state);
+    els.logHead.replaceChildren();
+    const cardTh = document.createElement("th");
+    cardTh.textContent = "Card";
+    els.logHead.append(cardTh);
+    for (const p of players) {
+      const th = document.createElement("th");
+      th.textContent = p.id === state.you ? "You" : p.name.length > 8 ? `${p.name.slice(0, 8)}…` : p.name;
+      th.title = p.name;
+      th.style.setProperty("--seat-color", seatColor(state.players.findIndex((x) => x.id === p.id)));
+      if (p.id === state.you) th.classList.add("you");
+      els.logHead.append(th);
     }
-    state.flipped.forEach((suit, i) => {
-      const c = cardEl(suit, "mini");
-      if (i === state.flipped.length - 1) c.classList.add("current");
-      els.river.append(c);
+    const rows = state.history.map((h) => ({ suit: h.reference, entry: h }));
+    if (state.flipped.length > state.history.length) rows.push({ suit: state.flipped[state.flipped.length - 1], entry: null });
+    els.logBody.replaceChildren();
+    rows.forEach((row, i) => {
+      const tr = document.createElement("tr");
+      if (i === rows.length - 1) tr.classList.add("current");
+      const td = document.createElement("td");
+      td.className = "log-card";
+      td.append(cardEl(row.suit, "mini"));
+      tr.append(td);
+      for (const p of players) {
+        const cell = document.createElement("td");
+        if (row.entry) {
+          cell.textContent = String(row.entry.bids[p.id]);
+          if (row.entry.buyers.includes(p.id)) cell.classList.add("buyer");
+        } else {
+          cell.textContent = "·";
+          cell.classList.add("pending");
+        }
+        tr.append(cell);
+      }
+      els.logBody.append(tr);
     });
-    els.river.scrollLeft = els.river.scrollWidth;
+    const scroller = els.log.querySelector(".log-scroll");
+    scroller.scrollTop = scroller.scrollHeight;
     const counts = countSuits(state.flipped);
     els.suitCounts.replaceChildren(...SUITS.map((suit) => {
       const chip = document.createElement("span");
@@ -303,17 +336,6 @@ export function createTable({ send, roomCode, toast, audio }) {
       chip.textContent = `${SUIT_SYMBOLS[suit]} ${counts[suit]}`;
       els.handMemo.append(chip);
     }
-  }
-
-  function renderTopbar() {
-    if (state.phase === "lobby" || state.phase === "results") {
-      els.auctionPill.hidden = true;
-      return;
-    }
-    const total = state.flipped.length + state.cardsRemaining - 1;
-    const k = state.auctionIndex || state.history.length || 1;
-    els.auctionPill.hidden = false;
-    els.auctionPill.textContent = `${k} / ${total}`;
   }
 
   // ---------- dock (bidding) ----------
@@ -490,6 +512,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     switch (p.kind) {
       case "deal":
         announce("Dealing");
+        els.logBody.replaceChildren();
+        els.suitCounts.replaceChildren();
         runTimeline((ctx) => dealTimeline(ctx, handle, next));
         break;
       case "bidding":

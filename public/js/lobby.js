@@ -20,7 +20,6 @@ export function renderLobbyCentre(els, state) {
   els.lobbyCentre.hidden = false;
   els.dealBtn.disabled = n < MIN_PLAYERS;
   els.dealBtn.classList.toggle("pulse", n >= MIN_PLAYERS);
-  els.seatCount.textContent = `${n} / ${MAX_PLAYERS}`;
 }
 
 export function initLobbyControls(els, { send, roomCode, toast }) {
