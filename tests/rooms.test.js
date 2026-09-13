@@ -37,22 +37,16 @@ test("reserveCode yields 4 lowercase letters and honours reservations", () => {
   assert.equal(registry.reserveCode(), null);
 });
 
-test("join creates a seat with a token; hostId is the earliest connected human", () => {
+test("join creates a seat with a token", () => {
   const { registry } = setup();
   const room = registry.getOrCreate("abcd");
-  const w1 = fakeWs();
-  const w2 = fakeWs();
-  const a = registry.join(room, { name: "Ann", ws: w1 });
-  const b = registry.join(room, { name: "Ben", ws: w2 });
+  const a = registry.join(room, { name: "Ann", ws: fakeWs() });
+  const b = registry.join(room, { name: "Ben", ws: fakeWs() });
   assert.equal(a.ok, true);
   assert.equal(a.seat.id, "p1");
   assert.match(a.seat.resumeToken, /^[0-9a-f]{32}$/);
   assert.equal(b.seat.id, "p2");
-  assert.equal(room.hostId(), "p1");
-  registry.disconnect(room, a.seat, w1);
-  assert.equal(room.hostId(), "p2");
-  registry.disconnect(room, b.seat, w2);
-  assert.equal(room.hostId(), null, "no connected human means no host");
+  assert.equal(typeof room.hostId, "undefined", "no host concept");
 });
 
 test("join is refused when full or when a game is running", () => {

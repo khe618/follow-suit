@@ -12,12 +12,12 @@ function makeRoom() {
     ["p2", { id: "p2", name: "Ben", isBot: false, connected: true }],
     ["p3", { id: "p3", name: "Bot Ada", isBot: true, connected: true, profile: { key: "keen", shade: 1, sigma: 0 } }]
   ]);
-  const room = { code: "abcd", seats, game, hostId: () => "p1" };
+  const room = { code: "abcd", seats, game };
   return { clock, game, room };
 }
 
 // Exact allowlists. Anything not listed here is a leak, whatever it is called.
-const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "hostId", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
+const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
 const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
 const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
 const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "price", "void", "flipped", "matched", "deltas"].sort();
@@ -40,7 +40,6 @@ test("lobby snapshot lists seats and hides nothing sensitive", () => {
   assert.equal(s.type, "state");
   assert.equal(s.room, "abcd");
   assert.equal(s.phase, "lobby");
-  assert.equal(s.hostId, "p1");
   assert.equal(s.you, "p1");
   assert.deepEqual(s.players.map((p) => p.id), ["p1", "p2", "p3"]);
   assert.equal(s.players[2].isBot, true);

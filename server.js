@@ -144,9 +144,10 @@ wss.on("connection", (ws, req) => {
     send(ws, { type: "joined", playerId: seat.id, resumeToken: seat.resumeToken });
   }
 
-  function requireHost() {
-    if (seat && room.hostId() === seat.id) return true;
-    send(ws, { type: "error", message: "Only the host can do that." });
+  // Anyone seated may run the table. Visitors and displaced sockets may not.
+  function requireSeated() {
+    if (seat) return true;
+    send(ws, { type: "error", message: "Sit down first." });
     return false;
   }
 
@@ -191,18 +192,18 @@ wss.on("connection", (ws, req) => {
         return;
       }
       case "add-bot": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         const result = registry.addBot(room);
         if (!result.ok) send(ws, { type: "error", message: result.error === "room_full" ? "The room is full." : "Bots can only be added in the lobby." });
         return;
       }
       case "remove-bot": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         if (!registry.removeBot(room, String(msg.playerId || ""))) send(ws, { type: "error", message: "Bots can only be removed in the lobby." });
         return;
       }
       case "start-game": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         const result = registry.startGame(room);
         if (!result.ok) send(ws, { type: "error", message: result.error === "need_players" ? "Need at least two players." : "The game has already started." });
         return;
@@ -216,7 +217,7 @@ wss.on("connection", (ws, req) => {
         return;
       }
       case "return-to-lobby": {
-        if (!requireHost()) return;
+        if (!requireSeated()) return;
         if (!registry.returnToLobby(room)) send(ws, { type: "error", message: "Play again is only available on the results screen." });
         return;
       }

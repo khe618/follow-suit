@@ -157,24 +157,47 @@ test("a human cannot take a bot's name", async () => {
   c.ws.close();
 });
 
-test("join seats a player, returns a token, and makes them host", async () => {
+test("join seats a player and returns a token", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");
   const s = a.lastState();
-  assert.equal(s.hostId, a.playerId);
+  assert.equal("hostId" in s, false);
   assert.equal(s.players.length, 1);
   assert.match(a.token, /^[0-9a-f]{32}$/);
   a.ws.close();
 });
 
-test("host passes to the next connected human", async () => {
+test("any seated player can add a bot and start the game", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");
   const b = await join(room, "Ben");
+  // Visitor-shaped states have no `players`; guard the predicate and pass a
+  // watermark so older messages are never scanned (see LEARNINGS.md).
+  const from = b.messages.length;
+  b.send({ type: "add-bot" });
+  await b.until((m) => m.type === "state" && m.players && m.players.length === 3, "bot added by second joiner", from);
+  b.send({ type: "start-game" });
+  const s = await a.until((m) => m.type === "state" && m.phase === "dealing", "dealing started by second joiner");
+  assert.equal(s.players.length, 3);
   a.ws.close();
-  const s = await b.until((m) => m.type === "state" && m.hostId === b.playerId, "host handoff");
-  assert.equal(s.players.find((p) => p.id === a.playerId).connected, false);
   b.ws.close();
+});
+
+test("a visitor cannot start the game or add bots", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const v = connect(room);
+  await v.open();
+  await v.until((m) => m.type === "state", "visitor state");
+  v.send({ type: "start-game" });
+  const err = await v.until((m) => m.type === "error", "visitor refusal");
+  assert.match(err.message, /sit down/i);
+  v.send({ type: "add-bot" });
+  await v.until((m) => m.type === "error", "visitor refusal 2", v.messages.length);
+  assert.equal(a.lastState().players.length, 1);
+  assert.equal(a.lastState().phase, "lobby");
+  a.ws.close();
+  v.ws.close();
 });
 
 test("join is refused while a game is running", async () => {
@@ -329,18 +352,6 @@ test("bidding round-trips: locked bids resolve, reveal, then auction 2", async (
   assert.equal(next.flipped.length, 2);
   const scoreSum = next.players.reduce((acc, p) => acc + p.score, 0);
   assert.equal(scoreSum, 0);
-  a.ws.close();
-  b.ws.close();
-});
-
-test("non-host actions are refused with an error", async () => {
-  const room = uniqueRoom();
-  const a = await join(room, "Ann");
-  const b = await join(room, "Ben");
-  b.send({ type: "start-game" });
-  const err = await b.until((m) => m.type === "error", "host refusal");
-  assert.match(err.message, /host/i);
-  assert.equal(b.lastState().phase, "lobby");
   a.ws.close();
   b.ws.close();
 });
