@@ -1,7 +1,7 @@
 # Follow Suit — game feel overhaul
 
 Date: 2026-09-13
-Status: draft for review
+Status: approved 2026-09-13
 Builds on: `2026-09-12-follow-suit-design.md` (the rules and server architecture there stay in force except where this spec amends them)
 
 ## 1. Goal
@@ -34,7 +34,7 @@ lobby → dealing → bidding → reveal(bids) → reveal(card) → bidding → 
 - `start` performs the full match reset as before, deals, sets `flipIndex = 1`, then enters `dealing` with `dealEndsAt = now + DEAL_MS` and arms one phase timer (`kind: "deal"`) that calls `startAuction(1)`. The timer carries `matchId` and is subject to the same guard as every other phase timer.
 - During `dealing`: no bot bids are scheduled; `bid` returns `not_bidding`; `setConnected` only records the flag. `returnToLobby` still requires `results`.
 - `remainingMs()` returns the time left in the current phase for both `dealing` and `bidding` (0 otherwise).
-- New config key `dealMs` (env `DEAL_MS`, default 7000). The reveal card step gets more room for the payment animation: `revealCardMs` default rises from 3000 to 4000. `revealBidsMs` stays 2500.
+- New config key `dealMs` (env `DEAL_MS`, default 7000). Both reveal steps get more room for the payment animations: `revealBidsMs` default rises from 2500 to 3000 and `revealCardMs` from 3000 to 4000.
 - The deal timer is armed with the existing `armTimer`; with `auction === null` its captured auction index is 0, and the timer-identity and `matchId` guards protect it as they do every other phase timer. `destroy` and `resetMatch` clear it like any other.
 
 ### 2.2 No host
@@ -158,15 +158,20 @@ Total about 5.3 s, inside the 7 s `dealMs`. The planner (section 3.10) runs the 
 
 ### 3.5 The auction timelines
 
-**Reveal bids** (on the transition into `reveal/bids` for an auction): each seat's bid tag flips up above the seat, staggered 120 ms apart starting from the lowest bid, each with a chip tap. The buyers' tags turn gold and their seats glow; a gold price badge with the number appears over the deck. A void auction shows a grey "no trade" badge instead. Highest bid gets a short rising sound.
+Live play shows the **gross two-step** settlement the rules describe: the buyer pays the price to every seller when the bids are revealed, and on a match every seller pays 100 to the buyer when the card is revealed. The server still applies the single net delta at the card step (section 4.4 of the v1 spec), so between the two legs the client shows a **display score** it derives itself (section 3.10).
 
-**Reveal card** (on the transition into `reveal/card` for an auction):
+**Reveal bids** (on the transition into `reveal/bids` for an auction, 3 s):
+
+1. **Tags** (about 0.7 s): each seat's bid tag flips up above the seat, staggered 120 ms apart starting from the lowest bid, each with a chip tap. The buyers' tags turn gold and their seats glow; a gold price badge with the number appears over the deck. A void auction shows a grey "no trade" badge instead and the step ends here. Highest bid gets a short rising sound.
+2. **Purchase** (about 1.2 s): one chip stream from every buyer to every seller carrying `price`. A stream of amount 0 sends no chips. Each arriving chip clinks and ticks the receiving seat's display score up while the paying seat's ticks down, easing so both land on their display scores as the last chip arrives.
+
+**Reveal card** (on the transition into `reveal/card` for an auction, 4 s):
 
 1. **Flip** (0.5 s): the top card flips off the deck into the reference slot. The old reference slides into the flipped row. Match: green flash on the rail and a two-note chime. Miss: red flash and a low thud.
-2. **Pay** (about 1.5 s): live play shows the **net** settlement, one chip stream per buyer–seller pair, never the gross "pay the price, then collect 100" two-step. On a match each seller sends `100 − price` to each buyer; on a miss each buyer sends `price` to each seller. A stream whose amount is 0 (price 100 on a match, price 0 on a miss) sends no chips. A void auction sends no chips. With tied buyers every buyer receives a stream from every seller, so the per-pair amounts sum to the deltas in `history`. A stream is six chip sprites along an arc, spaced 60 ms, each clinking on arrival and ticking the receiving seat's score toward its new value with an easing counter that lands on the exact `state` score as the last chip arrives. A delta badge (`+40` in green, `−20` in red, `0` in grey) floats up from every seat, streams or not.
+2. **Payout** (about 1.5 s): on a match, one chip stream from every seller to every buyer carrying 100, with the same clink-and-tick behaviour, landing on the exact `state` score. On a miss no chips move; the display scores already equal the `state` scores. Void: nothing moves. A delta badge with the auction's net delta (`+40` in green, `−20` in red, `0` in grey) floats up from every seat in both cases.
 3. The buyer glow and bid tags fade out. Next `bidding` snapshot: the dock slides up, the ring starts full, a soft deal-in sound plays.
 
-If a snapshot for a later step arrives mid-animation, the running animation is cancelled and the final frame drawn; scores are always taken from `state`, never from the animation.
+A stream is six chip sprites along an arc, spaced 60 ms. With tied buyers every buyer pays every seller and every seller pays every buyer, so the two legs sum to the deltas in `history`. If a snapshot for a later step arrives mid-animation, the running animation is cancelled and the final frame drawn with the display scores for that step; the animation itself never decides a score.
 
 **Results**: the overlay slides up after the last pay animation, or immediately on hydration. Winner's row: fanfare if you won, a softer resolve chord otherwise.
 
@@ -200,7 +205,7 @@ Music is generative, a lounge pad: a cycle of four chords (ii–V–I–vi in a 
 1. **Deal.** Cards deal to three seats; yours flip up. Caption: "Everyone gets a hand. You see only yours."
 2. **Shuffle back.** All hands and a small hidden stack fly into the deck, it riffles, the top card flips up. Caption: "The hands and some hidden cards go back in. Will the next card match this suit?"
 3. **Bid.** Three bid tags rise to 80, 50, 20; the 80 glows gold. Caption: "Everyone bids 0 to 100 in secret. Highest bid buys the bet from everyone else at that price."
-4. **Pay.** This slide deliberately shows the gross two-step that live play compresses into one net stream: chips fly 80 from the buyer to each of the two others; the card flips; a Match/Miss toggle replays the payout: on a match 100 comes back from each; on a miss nothing does. The slide ends on the same net delta badges live play shows (`+40 / −20 / −20` or `−160 / +80 / +80`), so players can connect the two. Caption: "Match: each other player pays the buyer 100. Miss: the buyer keeps nothing."
+4. **Pay.** The same two-step as live play: chips fly 80 from the buyer to each of the two others; the card flips; a Match/Miss toggle replays the payout: on a match 100 comes back from each; on a miss nothing does. The slide ends on the net delta badges (`+40 / −20 / −20` or `−160 / +80 / +80`). Caption: "Match: each other player pays the buyer 100. Miss: the buyer keeps nothing."
 5. **Try it.** Three sliders labelled You, A, B, a Match/Miss toggle, and live score deltas beside each slider computed with `GameCore.settle`. Ties show all top bidders as buyers; an all-way tie shows "no trade". Caption: "Move the bids. Notice who wins the auction and who wins the money."
 
 There is no "why the game is hard" slide. The dialog closes with Escape, the × button, or a tap outside.
@@ -252,6 +257,8 @@ The server sends more snapshots than there are transitions: a message handler br
 
 Duplicate-snapshot rule, made explicit: a second snapshot with the same key while a timeline is running takes the `update` path, which does not restart, cancel, or draw over the running timeline.
 
+**Display scores.** `transitions.js` also exports `displayScores(state)` returning `{ [playerId]: number }`. In every phase but `reveal/bids` it is each player's `score` from `state`. In `reveal/bids` the last history entry has bids, buyers, and price but no deltas yet, and the purchase leg has conceptually happened: each buyer's display score is `score − price × sellers.length` and each seller's is `score + price × buyers.length`; a void entry changes nothing. Because the server applies the net delta at the card step, `score + netDelta` equals the display score after the purchase leg plus the payout leg, so the two legs always reconcile with `state`. The state layer renders display scores, never raw scores, so hydration mid-reveal shows the right interim numbers.
+
 ## 4. Testing
 
 Server, all with `npm test`:
@@ -262,7 +269,8 @@ Server, all with `npm test`:
 - `snapshot`: key list updated (`hostId` out, `timing` in); in `dealing` the recipient's own hand and the reference are present, `auctionIndex` is `null`, and the deck and other hands are absent; secrecy assertions extended to the new phase.
 - `server` (real sockets): the spawned server gets `DEAL_MS=50` alongside the short bid and reveal timings so existing tests that wait for `bidding` keep their margin; a second joiner can add a bot and start the game; a visitor cannot; `quick-play` from a fresh room yields a `joined` then a `dealing` state with four players, three of them bots; `quick-play` into a room that already has a seat behaves as a plain join; `/how-to-play` serves the app shell. The 7 s production default is asserted in the config test, not by waiting for it.
 - `seat-layout`: for 2..6 players, index 0 is at bottom centre, positions are distinct, all within the box, and neighbours are at least a minimum angular distance apart.
-- `transitions`: fed snapshot sequences and asserted kind by kind: duplicate `dealing` snapshots yield `deal` then `update`; a `dealing` snapshot with short `remainingMs` yields `hydrate`; the first snapshot after a socket open yields `hydrate` even in `reveal/card`; `reveal/bids` twice yields `revealBids` then `update`; skipping straight from `bidding` to `reveal/card` yields `revealCard`; a new `matchId` in `dealing` yields `deal` again; results then lobby yields `results` then `lobby`. Generation cancellation in `anim.js` is tested with a fake sequencer: a cancelled timeline resolves without calling its DOM hooks after the cancel point.
+- `transitions` `displayScores`: equals raw scores outside `reveal/bids`; in `reveal/bids` reproduces the purchase leg for the v1 worked examples (80/50/20 → −160/+80/+80 relative to raw; the 60/60/30/10 tie → −120/−120/+120/+120); a void entry leaves scores unchanged; display score plus the payout leg equals the raw score after the card step.
+- `transitions` `plan`: fed snapshot sequences and asserted kind by kind: duplicate `dealing` snapshots yield `deal` then `update`; a `dealing` snapshot with short `remainingMs` yields `hydrate`; the first snapshot after a socket open yields `hydrate` even in `reveal/card`; `reveal/bids` twice yields `revealBids` then `update`; skipping straight from `bidding` to `reveal/card` yields `revealCard`; a new `matchId` in `dealing` yields `deal` again; results then lobby yields `results` then `lobby`. Generation cancellation in `anim.js` is tested with a fake sequencer: a cancelled timeline resolves without calling its DOM hooks after the cancel point.
 
 Client, manual in Chrome before calling it done, on a phone-width viewport and a laptop viewport:
 
@@ -285,5 +293,5 @@ Client, manual in Chrome before calling it done, on a phone-width viewport and a
 - History table kept on the results screen behind a disclosure: the number-heavy record is useful for people who want to study a game, but it should not be the first thing on screen.
 - ES modules without a bundler: the browser support floor for this app already assumes modern JavaScript, and splitting the client is the only way to keep the animation, audio, and rendering code reviewable.
 - Landing to room is an in-document route change, not a page load, so the audio context unlocked on the landing survives into the game. A reload still needs one gesture; that is browser policy.
-- Live play shows net settlement per buyer–seller pair; the tutorial shows the gross two-step once and ends on the same net badges. Net keeps the reveal under 4 s and matches the deltas in the history; gross is what teaches the rule.
+- Live play shows the gross two-step settlement (buyer pays the price at the bids reveal, sellers pay 100 at a match), chosen by the owner over a single net stream because the two legs are what teach the rule. The server stays net; the client derives the interim display score.
 - Snapshots are idempotent state, and transitions are derived by a pure planner keyed on match, phase, step, and auction. Codex review found that the server's double broadcast per handler would otherwise replay or interrupt animations.
