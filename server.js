@@ -9,19 +9,13 @@ const { createRegistry } = require("./lib/rooms.js");
 const { buildState } = require("./lib/snapshot.js");
 const { BOT_NAMES } = require("./lib/bots.js");
 
-function envInt(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
+const { readConfig } = require("./lib/config.js");
 
-const PORT = envInt("PORT", 3000);
-const CONFIG = {
-  bidMs: envInt("BID_MS", 20000),
-  revealBidsMs: envInt("REVEAL_BIDS_MS", 2500),
-  revealCardMs: envInt("REVEAL_CARD_MS", 3000)
-};
-const RESUME_TTL_MS = envInt("RESUME_TTL_MS", 10 * 60 * 1000);
-const HEARTBEAT_MS = envInt("HEARTBEAT_MS", 30000);
+const SETTINGS = readConfig();
+const PORT = SETTINGS.port;
+const CONFIG = SETTINGS.game;
+const RESUME_TTL_MS = SETTINGS.resumeTtlMs;
+const HEARTBEAT_MS = SETTINGS.heartbeatMs;
 
 // Crash resistance: one bad socket message must not take every room down.
 // Each message and timer is also wrapped individually (see below), so this is

@@ -58,6 +58,7 @@ test("lobby snapshot lists seats and hides nothing sensitive", () => {
 test("visitors get nothing about a running match", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   clock.advance(20000);
   const visitor = buildState(room, null);
   assert.deepEqual(Object.keys(visitor).sort(), VISITOR_KEYS);
@@ -66,8 +67,9 @@ test("visitors get nothing about a running match", () => {
 });
 
 test("a disconnected human reads as locked, a bot only once it has bid", () => {
-  const { room, game } = makeRoom();
+  const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   game.setConnected("p2", false);
   const s = buildState(room, "p1");
   assert.equal(s.players.find((p) => p.id === "p2").locked, true);
@@ -76,8 +78,9 @@ test("a disconnected human reads as locked, a bot only once it has bid", () => {
 });
 
 test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
-  const { room, game } = makeRoom();
+  const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   game.bid("p2", { auction: 1, amount: 33, locked: true });
   const s1 = buildState(room, "p1");
   assert.equal(s1.phase, "bidding");
@@ -102,9 +105,10 @@ test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
 test("a resumed recipient mid-bidding gets the same public record", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   for (const id of ["p1", "p2"]) game.bid(id, { auction: 1, amount: 20, locked: true });
   clock.advance(6000);
-  clock.advance(2500 + 3000);
+  clock.advance(3000 + 4000);
   assert.equal(game.auction.index, 2);
   const a = buildState(room, "p1");
   const b = buildState(room, "p2");
@@ -117,6 +121,7 @@ test("a resumed recipient mid-bidding gets the same public record", () => {
 test("reveal(bids) snapshot exposes the current auction's bids via history only", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   clock.advance(20000);
   const s = buildState(room, "p1");
   assert.equal(s.phase, "reveal");
@@ -131,10 +136,11 @@ test("reveal(bids) snapshot exposes the current auction's bids via history only"
 test("results snapshot reveals every hand", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
+  clock.advance(7000);
   while (game.phase !== "results") {
     if (game.phase === "bidding") for (const id of ["p1", "p2"]) game.bid(id, { auction: game.auction.index, amount: 20, locked: true });
     clock.advance(6000);
-    clock.advance(5500);
+    clock.advance(7000);
   }
   const s = buildState(room, "p2");
   assert.equal(s.phase, "results");

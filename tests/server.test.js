@@ -31,7 +31,7 @@ test.before(async () => {
   child = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
     // BID_MS 4000 keeps bot bids inside 1.5 to 2 s, so every wait below has
     // room to spare, and a deadline passes quickly when a test needs one.
-    env: { ...process.env, PORT: String(PORT), RESUME_TTL_MS: String(TTL_MS), BID_MS: "4000", REVEAL_BIDS_MS: "50", REVEAL_CARD_MS: "50" },
+    env: { ...process.env, PORT: String(PORT), RESUME_TTL_MS: String(TTL_MS), DEAL_MS: "50", BID_MS: "4000", REVEAL_BIDS_MS: "50", REVEAL_CARD_MS: "50" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stderr.on("data", (b) => process.stderr.write(b));

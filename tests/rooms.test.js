@@ -5,7 +5,7 @@ const { createGame } = require("../lib/game.js");
 const { createClock } = require("./helpers/clock.js");
 
 const TTL = 10000;
-const CONFIG = { bidMs: 20000, revealBidsMs: 2500, revealCardMs: 3000 };
+const CONFIG = { dealMs: 7000, bidMs: 20000, revealBidsMs: 3000, revealCardMs: 4000 };
 
 function fakeWs() {
   return { closed: [], OPEN: 1, readyState: 1, close(code) { this.closed.push(code); } };
@@ -200,7 +200,7 @@ test("returnToLobby sweeps long-disconnected seats and arms expiry for the rest"
   while (room.game.phase !== "results") {
     if (room.game.phase === "bidding") room.game.bid("p1", { auction: room.game.auction.index, amount: 10, locked: true });
     clock.advance(20000);
-    clock.advance(5500);
+    clock.advance(CONFIG.revealBidsMs + CONFIG.revealCardMs);
   }
   // Cat drops on the results screen, moments before the host returns to the lobby.
   registry.disconnect(room, c, w3);
@@ -226,7 +226,7 @@ test("a seat that disconnects on the results screen expires after the TTL; stand
       room.game.bid("p1", { auction: room.game.auction.index, amount: 10, locked: true });
       room.game.bid("p2", { auction: room.game.auction.index, amount: 5, locked: true });
     }
-    clock.advance(5500);
+    clock.advance(CONFIG.revealBidsMs + CONFIG.revealCardMs);
   }
   registry.disconnect(room, b, w2);
   clock.advance(TTL);
