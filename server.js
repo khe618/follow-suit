@@ -15,6 +15,8 @@ const PORT = SETTINGS.port;
 const CONFIG = SETTINGS.game;
 const RESUME_TTL_MS = SETTINGS.resumeTtlMs;
 const HEARTBEAT_MS = SETTINGS.heartbeatMs;
+// Quick play fills a fresh room to this many seats with bots and deals.
+const QUICK_PLAY_SEATS = 4;
 
 // Crash resistance: one bad socket message must not take every room down.
 // Each message and timer is also wrapped individually (see below), so this is
@@ -70,9 +72,7 @@ app.get("/api/new-room", (_req, res) => {
   res.json({ ok: true, room });
 });
 
-app.get("/how-to-play", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "how-to-play.html"));
-});
+app.get("/how-to-play", (_req, res) => res.type("html").send(INDEX_HTML));
 
 app.get(/^\/[a-z]{4}$/, (_req, res) => res.type("html").send(INDEX_HTML));
 
@@ -145,6 +145,32 @@ wss.on("connection", (ws, req) => {
     return false;
   }
 
+  // Seats this socket: adopts an existing seat if the token matches, else
+  // joins with a fresh seat. Returns true only when a NEW seat was created.
+  function seatHuman(msg) {
+    if (seat) return false;
+    const existing = registry.resume(room, String(msg.resumeToken || ""), ws);
+    if (existing) {
+      seat = existing;
+      joinedMessage();
+      return false;
+    }
+    const name = normalizeName(msg.name);
+    if (!name) {
+      send(ws, { type: "error", message: "Please enter a name." });
+      return false;
+    }
+    const result = registry.join(room, { name, ws });
+    if (!result.ok) {
+      const message = result.error === "game_in_progress" ? "Game in progress, try again after this game." : "That room is full.";
+      send(ws, { type: "error", code: result.error, message });
+      return false;
+    }
+    seat = result.seat;
+    joinedMessage();
+    return true;
+  }
+
   function handle(msg) {
     switch (msg.type) {
       case "resume": {
@@ -159,26 +185,19 @@ wss.on("connection", (ws, req) => {
         return;
       }
       case "join": {
-        if (seat) return;
-        const existing = registry.resume(room, String(msg.resumeToken || ""), ws);
-        if (existing) {
-          seat = existing;
-          joinedMessage();
-          return;
+        seatHuman(msg);
+        return;
+      }
+      case "quick-play": {
+        const alone = room.seats.size === 0;
+        if (!seatHuman(msg) || !alone) return;
+        // Only a brand-new, empty room is filled with bots and dealt. If
+        // anyone else sat down first this was a plain join.
+        while (room.seats.size < QUICK_PLAY_SEATS) {
+          if (!registry.addBot(room).ok) break;
         }
-        const name = normalizeName(msg.name);
-        if (!name) {
-          send(ws, { type: "error", message: "Please enter a name." });
-          return;
-        }
-        const result = registry.join(room, { name, ws });
-        if (!result.ok) {
-          const message = result.error === "game_in_progress" ? "Game in progress, try again after this game." : "That room is full.";
-          send(ws, { type: "error", code: result.error, message });
-          return;
-        }
-        seat = result.seat;
-        joinedMessage();
+        const started = registry.startGame(room);
+        if (!started.ok) send(ws, { type: "error", message: "Could not start the game." });
         return;
       }
       case "add-bot": {

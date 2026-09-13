@@ -117,13 +117,65 @@ async function join(room, name, token) {
   return c;
 }
 
+test("quick-play in a fresh room seats three bots and deals", async () => {
+  const room = uniqueRoom();
+  const c = connect(room);
+  await c.open();
+  c.send({ type: "quick-play", name: "Ann" });
+  const joined = await c.until((m) => m.type === "joined", "joined");
+  const s = await c.until((m) => m.type === "state" && m.phase === "dealing", "dealing");
+  assert.equal(s.you, joined.playerId);
+  assert.equal(s.players.length, 4);
+  assert.equal(s.players.filter((p) => p.isBot).length, 3);
+  assert.equal(s.players[0].id, joined.playerId, "the human took the first seat");
+  assert.equal(s.hand.length, 4);
+  assert.ok(c.messages.indexOf(joined) < c.messages.indexOf(s), "joined arrives before the first dealing state");
+  await c.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
+  c.ws.close();
+});
+
+test("quick-play into a room that already has a seat is a plain join", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const b = connect(room);
+  await b.open();
+  b.send({ type: "quick-play", name: "Ben" });
+  const joined = await b.until((m) => m.type === "joined", "joined");
+  const s = await b.until((m) => m.type === "state" && m.you === joined.playerId, "seated");
+  assert.equal(s.phase, "lobby");
+  assert.equal(s.players.length, 2);
+  assert.equal(s.players.some((p) => p.isBot), false);
+  a.ws.close();
+  b.ws.close();
+});
+
+test("quick-play needs a name and is refused mid-game like join", async () => {
+  const room = uniqueRoom();
+  const c = connect(room);
+  await c.open();
+  c.send({ type: "quick-play", name: "   " });
+  const err = await c.until((m) => m.type === "error", "empty name");
+  assert.match(err.message, /name/i);
+  c.send({ type: "quick-play", name: "Ann" });
+  await c.until((m) => m.type === "state" && m.phase === "dealing", "dealing");
+  const d = connect(room);
+  await d.open();
+  d.send({ type: "quick-play", name: "Dee" });
+  const refused = await d.until((m) => m.type === "error", "refused");
+  assert.equal(refused.code, "game_in_progress");
+  c.ws.close();
+  d.ws.close();
+});
+
 test("routes: shell, new-room, how-to-play, html redirect, json 404", async () => {
   assert.equal((await getJson("/")).status, 200);
   assert.equal((await getJson("/abcd")).status, 200);
   const nr = await getJson("/api/new-room");
   assert.equal(nr.status, 200);
   assert.match(JSON.parse(nr.body).room, /^[a-z]{4}$/);
-  assert.equal((await getJson("/how-to-play")).status, 200);
+  const htp = await getJson("/how-to-play");
+  assert.equal(htp.status, 200);
+  assert.match(htp.body, /<title>Follow Suit<\/title>/);
   const page = await getJson("/no-such-page", { Accept: "text/html,application/xhtml+xml,*/*;q=0.8" });
   assert.equal(page.status, 302);
   assert.equal(page.headers.location, "/");
