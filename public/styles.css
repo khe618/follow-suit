@@ -213,3 +213,21 @@ td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
 @media (prefers-reduced-motion: reduce) {
   .chip-btn.pulse, .seat-status.thinking, .in-play, .wm-suits .glyph, .splash-deck div, .overlay-card { animation: none; }
 }
+
+/* ---- animation layer (Task 10) ---- */
+.sprite-layer .card { position: absolute; margin: 0; }
+.chip-sprite { width: 22px; height: 22px; border-radius: 50%; background: var(--chip); border: 3px dashed var(--chip-2); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
+.avatar.peek { animation: peek 600ms ease-in-out; }
+@keyframes peek { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-12deg) translateY(-3px); } }
+.rail-flash { position: absolute; inset: 0; border-radius: 50%; opacity: 0; pointer-events: none; z-index: 3; }
+.rail-flash.good { box-shadow: inset 0 0 0 14px var(--good), 0 0 40px 6px var(--good); }
+.rail-flash.bad { box-shadow: inset 0 0 0 14px var(--bad), 0 0 40px 6px var(--bad); }
+.dock.in { animation: dockIn 320ms ease-out; }
+@keyframes dockIn { from { transform: translateY(100%); } to { transform: none; } }
+.standing { position: relative; overflow: hidden; }
+.confetti { position: absolute; top: 0; font-size: 1rem; pointer-events: none; }
+.confetti.red { color: var(--red); }
+.confetti.black { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+  .avatar.peek, .dock.in { animation: none; }
+}

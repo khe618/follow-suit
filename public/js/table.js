@@ -1,4 +1,6 @@
 import { emptySeat, renderLobbyCentre, initLobbyControls } from "./lobby.js";
+import { createAnim } from "./anim.js";
+import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline } from "./timelines.js";
 
 const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
@@ -32,6 +34,77 @@ export function createTable({ send, roomCode, toast, audio }) {
   let ringTotal = 1;
   let ringTimer = null;
   let connected = true;
+
+  const anim = createAnim(els.sprites);
+  // The rail flash is an overlay whose opacity animates (transform/opacity
+  // only, per spec); box-shadow itself never animates.
+  els.flash = document.createElement("div");
+  els.flash.className = "rail-flash";
+  els.table.append(els.flash);
+
+  // Writes a displayed score without touching state (timelines tick these).
+  function showScore(id, value) {
+    const el = seatEls.get(id);
+    if (el) setScore(el, value);
+  }
+  function announce(text) {
+    const live = $("live");
+    live.textContent = "";
+    live.textContent = text;
+  }
+  // Every non-update render starts from a clean state layer: nothing hidden
+  // or pinned by a timeline, no leftover stacks, flashes, or sprites.
+  function resetTransient() {
+    els.hand.style.visibility = "";
+    els.refSlot.style.visibility = "";
+    els.priceBadge.style.visibility = "";
+    els.priceBadge.style.opacity = "";
+    els.flash.className = "rail-flash";
+    for (const el of seatEls.values()) {
+      const tag = el.querySelector(".bid-tag");
+      tag.style.visibility = "";
+      tag.style.opacity = "";
+      const avatar = el.querySelector(".avatar");
+      avatar.classList.remove("peek");
+      avatar.style.opacity = "";
+      for (const b of el.querySelectorAll(".delta-badge")) b.remove();
+    }
+    els.sprites.replaceChildren();
+  }
+  const handle = { els, audio, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, showScore, announce };
+
+  function drawAll() {
+    renderTopbar();
+    renderSeats();
+    renderCentre();
+    renderRiver();
+    renderHand();
+    renderDock();
+    renderResults();
+  }
+
+  // The only fields an idempotent update may touch while a timeline owns
+  // the table: connection flags, lock pips, the timer, the counter. Never
+  // the hand, reference, river, scores, tags, or sprites.
+  function patchLive() {
+    for (const p of state.players) {
+      const el = seatEls.get(p.id);
+      if (!el) continue;
+      el.classList.toggle("away", !p.connected);
+      el.querySelector(".seat-status").className = "seat-status" + (state.phase === "bidding" && p.connected ? (p.locked ? " locked" : " thinking") : "");
+    }
+    if (state.phase === "bidding") renderDock();
+    renderTopbar();
+  }
+
+  // A real timeline error (not cancellation) must not strand the table.
+  function runTimeline(fn) {
+    anim.run(fn).catch((err) => {
+      console.error("[table] timeline failed:", err);
+      resetTransient();
+      drawAll();
+    });
+  }
 
   // ---------- ordering & helpers ----------
   function orderedPlayers(s) {
@@ -349,16 +422,43 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
 
   // ---------- public ----------
-  function render(next, plan) {
+  function render(next, p) {
     state = next;
-    if (plan.kind === "hydrate") resyncDraft = true;
-    renderTopbar();
-    renderSeats();
-    renderCentre();
-    renderRiver();
-    renderHand();
-    renderDock();
-    renderResults();
+    if (p.kind === "update") {
+      if (anim.running()) patchLive();
+      else drawAll();
+      return;
+    }
+    anim.cancelAll();
+    resetTransient();
+    if (p.kind === "hydrate") resyncDraft = true;
+    drawAll();
+    switch (p.kind) {
+      case "deal":
+        announce("Dealing");
+        runTimeline((ctx) => dealTimeline(ctx, handle, next));
+        break;
+      case "bidding":
+        els.dock.classList.remove("in");
+        void els.dock.offsetWidth;
+        els.dock.classList.add("in");
+        audio.play("dealin");
+        break;
+      case "revealBids":
+        runTimeline((ctx) => revealBidsTimeline(ctx, handle, next));
+        break;
+      case "revealCard":
+        runTimeline((ctx) => revealCardTimeline(ctx, handle, next));
+        break;
+      case "results":
+        runTimeline((ctx) => resultsTimeline(ctx, handle, next));
+        break;
+      case "lobby":
+        announce("Back in the lobby");
+        break;
+      default:
+        break;
+    }
   }
 
   function setConnected(ok) {
@@ -371,7 +471,8 @@ export function createTable({ send, roomCode, toast, audio }) {
   function dispose() {
     stopRing();
     clearTimeout(bidSendTimer);
-    els.sprites.replaceChildren();
+    anim.cancelAll();
+    resetTransient();
   }
 
   initLobbyControls(els, { send, roomCode, toast });
