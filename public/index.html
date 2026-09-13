@@ -1,3 +1,125 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><title>Follow Suit</title></head>
-<body><p>Follow Suit app shell placeholder.</p></body></html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0f1b17">
+  <title>Follow Suit</title>
+  <meta name="description" content="Follow Suit: a multiplayer card auction that teaches the winner's curse. Bid on whether the next card follows suit; win the auction and everyone else takes the other side.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Follow Suit</a>
+    <span id="roomBadge" class="room-badge" hidden></span>
+    <span id="connBadge" class="conn-badge" hidden>Reconnecting&hellip;</span>
+  </header>
+
+  <main id="app">
+    <section id="nameView" class="view" hidden>
+      <h1>Follow Suit</h1>
+      <p class="tagline">Bid on whether the next card follows suit. Win the auction and everyone else takes the other side of your trade.</p>
+      <form id="nameForm" class="stack">
+        <label for="nameInput">Your name</label>
+        <input id="nameInput" maxlength="16" autocomplete="nickname" required>
+        <div id="landingActions" class="stack">
+          <button type="button" id="createBtn" class="primary">Create a room</button>
+          <div class="join-row">
+            <input id="codeInput" placeholder="room code" maxlength="4" autocapitalize="none" autocomplete="off" spellcheck="false">
+            <button type="button" id="joinCodeBtn">Join</button>
+          </div>
+        </div>
+        <div id="roomActions" class="stack" hidden>
+          <p id="roomPreview" class="muted"></p>
+          <button type="submit" class="primary">Join room <span id="joinRoomCode"></span></button>
+        </div>
+      </form>
+      <p class="muted"><a href="/how-to-play">How to play</a></p>
+    </section>
+
+    <section id="lobbyView" class="view" hidden>
+      <h2>Lobby</h2>
+      <p id="lobbyCount" class="muted"></p>
+      <ul id="lobbyPlayers" class="player-list"></ul>
+      <div class="link-row">
+        <input id="roomLink" readonly>
+        <button type="button" id="copyLinkBtn">Copy link</button>
+      </div>
+      <p id="lobbyHandInfo" class="muted"></p>
+      <div id="hostControls" class="row" hidden>
+        <button type="button" id="addBotBtn">Add bot</button>
+        <button type="button" id="startBtn" class="primary">Start</button>
+      </div>
+      <p id="guestNote" class="muted" hidden>Waiting for the host to start.</p>
+      <p class="rules-blurb">Each auction: everyone bids 0 to 100 for the right to be paid 100 per opponent if the next card matches the suit showing. The highest bid wins and pays that price to every other player. Ties all buy. <a href="/how-to-play">Full rules</a>.</p>
+    </section>
+
+    <section id="gameView" class="view" hidden>
+      <div class="table-top">
+        <div id="refCard" class="ref-card"></div>
+        <div class="table-info">
+          <p id="refLabel" class="ref-label"></p>
+          <p id="deckInfo" class="muted"></p>
+          <div id="flipCounts" class="flip-counts"></div>
+        </div>
+      </div>
+      <div id="flipStrip" class="flip-strip"></div>
+
+      <h3 class="section-title">Your hand</h3>
+      <div id="hand" class="hand"></div>
+
+      <div class="auction-head">
+        <span id="auctionLabel" class="auction-label"></span>
+        <span id="timer" class="timer"></span>
+      </div>
+
+      <div id="bidPanel" class="panel" hidden>
+        <div class="bid-controls">
+          <input id="bidRange" type="range" min="0" max="100" step="1" value="0">
+          <input id="bidInput" type="number" min="0" max="100" step="1" value="0" inputmode="numeric">
+          <button type="button" id="lockBtn" class="primary">Lock in bid</button>
+        </div>
+        <p id="bidHint" class="muted"></p>
+      </div>
+
+      <div id="revealPanel" class="panel" hidden>
+        <p id="revealSummary" class="reveal-summary"></p>
+        <ul id="revealBids" class="bid-list"></ul>
+        <div id="revealOutcome" class="reveal-outcome"></div>
+      </div>
+
+      <h3 class="section-title">Scores</h3>
+      <ul id="scoreboard" class="score-list"></ul>
+    </section>
+
+    <section id="resultsView" class="view" hidden>
+      <h2>Final standings</h2>
+      <ul id="standings" class="standings"></ul>
+      <div class="row">
+        <button type="button" id="playAgainBtn" class="primary" hidden>Play again</button>
+        <p id="resultsGuestNote" class="muted" hidden>Waiting for the host.</p>
+      </div>
+      <h3 class="section-title">Every auction</h3>
+      <p id="historyLegend" class="muted"></p>
+      <div class="table-wrap">
+        <table class="history">
+          <thead><tr><th>#</th><th>Ref</th><th>Bids</th><th>Buyer @ price</th><th>Flip</th><th>Score change</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="takenOverView" class="view" hidden>
+      <h2>Seat opened elsewhere</h2>
+      <p>This seat is now active in another tab or device. Reload here to take it back.</p>
+      <button type="button" id="reloadBtn" class="primary">Reload</button>
+    </section>
+
+    <div id="toast" class="toast" hidden></div>
+  </main>
+
+  <script src="/game-core.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
