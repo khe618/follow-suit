@@ -247,8 +247,8 @@ td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
 .mini-table .card.small { width: 34px; height: 48px; font-size: 1.2rem; }
 .tut-caption { text-align: center; font-size: 1.05rem; min-height: 2.8em; margin: 0; }
 .tut-controls { display: flex; justify-content: center; gap: 8px; }
-.chip-btn.small { padding: 6px 14px; font-size: 0.9rem; }
-.chip-btn[aria-pressed="true"] { background: var(--gold); color: #1a1408; box-shadow: 0 3px 0 #8a6a2a, inset 0 0 0 3px var(--gold); }
+.tut-controls .chip-btn.small { padding: 6px 14px; font-size: 0.9rem; }
+.tut-controls .chip-btn[aria-pressed="true"] { background: var(--gold); color: #1a1408; box-shadow: 0 3px 0 #8a6a2a, inset 0 0 0 3px var(--gold); }
 .tut-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tut-dots { display: flex; gap: 6px; }
 .tut-dot { width: 10px; height: 10px; border-radius: 50%; border: none; background: var(--line); padding: 0; cursor: pointer; }
