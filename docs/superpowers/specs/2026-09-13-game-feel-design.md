@@ -1,7 +1,7 @@
 # Follow Suit — game feel overhaul
 
 Date: 2026-09-13
-Status: approved 2026-09-13
+Status: implemented 2026-09-13
 Builds on: `2026-09-12-follow-suit-design.md` (the rules and server architecture there stay in force except where this spec amends them)
 
 ## 1. Goal

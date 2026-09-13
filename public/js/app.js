@@ -158,6 +158,9 @@ function enterRoom(code) {
       if (myNet !== net) return;
       $("connPill").hidden = ok;
       myTable.setConnected(ok);
+      const live = $("live");
+      live.textContent = "";
+      live.textContent = ok ? "Connected" : "Connection lost, reconnecting";
     }
   });
   net = myNet;

@@ -457,6 +457,11 @@ export function createTable({ send, roomCode, toast, audio }) {
         void els.dock.offsetWidth;
         els.dock.classList.add("in");
         audio.play("dealin");
+        {
+          const active = document.activeElement;
+          const busy = active && (active.tagName === "INPUT" || active.tagName === "BUTTON") && active !== els.lockBtn;
+          if (!busy) els.bidInput.focus({ preventScroll: true });
+        }
         break;
       case "revealBids":
         runTimeline((ctx) => revealBidsTimeline(ctx, handle, next));
