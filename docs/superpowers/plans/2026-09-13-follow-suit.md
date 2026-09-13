@@ -3307,6 +3307,10 @@ git commit -m "feat: client shell, socket wiring, and all four views"
 }
 
 * { box-sizing: border-box; }
+/* The client switches views with the `hidden` attribute. Class rules below set
+   display on .view, .panel and others, which would outrank the UA's [hidden]
+   rule and stack every view on screen; this keeps hidden meaning hidden. */
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--felt); color: var(--ink); }
 body { min-height: 100dvh; padding-bottom: env(safe-area-inset-bottom); }
 a { color: var(--gold-2); }
