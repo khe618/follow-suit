@@ -1,6 +1,6 @@
 import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
-import { holdSpot } from "./timelines.js";
+import { holdSpot, setAside, besideSpot, COMPARE_MS, SLIDE_MS } from "./timelines.js";
 
 const { settle, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, HAND_SIZES } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
@@ -103,14 +103,24 @@ async function dealTo(ctx, m, count, mySuits, onCard = () => {}) {
 }
 
 // Turn the top card of the deck over onto the reference slot, then let the
-// slot's own card take over.
-async function turnReference(ctx, m, suit, ms = 600) {
+// slot's own card take over. With `compare`, the card lands beside the
+// slot first (the callback runs there, for the match/miss flash), holds,
+// then slides onto the slot.
+async function turnReference(ctx, m, suit, ms = 600, compare = null) {
+  const deck = ctx.centre(m.deck);
+  const slot = ctx.centre(m.refSlot);
   const top = ctx.spawn("card big down");
-  ctx.put(top, ctx.centre(m.deck));
-  await ctx.turn(top, ctx.centre(m.deck), ctx.centre(m.refSlot), ms, () => {
+  ctx.put(top, deck);
+  const landing = compare ? besideSpot(slot) : slot;
+  await ctx.turn(top, deck, landing, ms, () => {
     top.className = `card big ${suit}`;
     top.textContent = SUIT_SYMBOLS[suit];
   });
+  if (compare) {
+    compare();
+    await ctx.wait(COMPARE_MS);
+    await ctx.fly(top, landing, slot, SLIDE_MS);
+  }
   m.refSlot.replaceChildren(cardEl(suit, "big"));
   top.remove();
 }
@@ -136,9 +146,10 @@ async function showTag(ctx, m, i, value, gold) {
 
 const POOL = SUITS.length * POOL_PER_SUIT;
 const handSizes = Object.keys(HAND_SIZES).map((n) => `<b>${HAND_SIZES[n]}</b> with ${n}`).join(", ");
+const deckSizes = Object.keys(HAND_SIZES).map((n) => `<b>${HAND_SIZES[n] * n}</b> with ${n}`).join(", ");
 const SLIDES = [
   {
-    caption: "Everyone is dealt a hand from the pool and sees only their own.",
+    caption: `Everyone is dealt a hand from a ${POOL}-card pool and sees only their own.`,
     facts: [
       `Pool: <b>${POOL_PER_SUIT}</b> of each suit ${SUITS.map((s) => `<span class="${s}">${SUIT_SYMBOLS[s]}</span>`).join("")}, ${POOL} cards`,
       `Cards each: ${handSizes} players`,
@@ -162,18 +173,39 @@ const SLIDES = [
     }
   },
   {
-    caption: "Every hand goes back in. Will the next card match this suit?",
+    caption: "The rest of the pool is set aside unseen. Only the hands are shuffled together: that is the deck.",
+    facts: [
+      `Deck: every hand together, ${deckSizes} players`,
+      "Set aside: the rest of the pool, never dealt or flipped",
+      "Will the next card match the suit on top?"
+    ],
     async run(ctx, m) {
-      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"]);
+      let inPool = POOL;
+      m.deckCount.textContent = String(inPool);
+      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"], () => {
+        inPool -= 1;
+        m.deckCount.textContent = String(inPool);
+      });
       const deck = ctx.centre(m.deck);
-      await ctx.wait(500);
+      await ctx.wait(400);
+      await setAside(ctx, m.deck, m.deckCount, m.table, inPool);
+      await ctx.wait(200);
+      let inDeck = 0;
       for (const card of sprites.reverse()) {
         card.className = "card small down";
         card.textContent = "";
-        ctx.fly(card, ctx.centre(card), deck, 300, { spin: 180 }).then(() => ctx.alive() && card.remove());
+        ctx.fly(card, ctx.centre(card), deck, 300, { spin: 180 }).then(() => {
+          if (!ctx.alive()) return;
+          card.remove();
+          inDeck += 1;
+          m.deck.classList.remove("empty");
+          m.deckCount.textContent = String(inDeck);
+        });
         await ctx.wait(40);
       }
       await ctx.wait(350);
+      m.deck.classList.remove("empty");
+      m.deckCount.textContent = String(sprites.length);
       const left = ctx.spawn("card small down");
       const right = ctx.spawn("card small down");
       ctx.put(left, deck);
@@ -186,6 +218,7 @@ const SLIDES = [
       left.remove();
       right.remove();
       await turnReference(ctx, m, "spades");
+      m.deckCount.textContent = String(sprites.length - 1);
       await ctx.wait(1000);
     }
   },
@@ -229,9 +262,10 @@ const SLIDES = [
       m.score(2, 80);
       await ctx.wait(500);
       const suit = matched ? "spades" : "hearts";
-      await turnReference(ctx, m, suit, 550);
-      m.flash.className = `rail-flash ${matched ? "good" : "bad"}`;
-      await ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 });
+      await turnReference(ctx, m, suit, 550, () => {
+        m.flash.className = `rail-flash ${matched ? "good" : "bad"}`;
+        ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+      });
       if (matched) {
         await Promise.all([chips(ctx, m, 1, 0), chips(ctx, m, 2, 0)]);
         m.score(0, 40);

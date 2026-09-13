@@ -7,6 +7,7 @@ const { seatPositions } = window.SeatLayout;
 const { displayScores } = window.Transitions;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
+const DEFAULT_BID = 25;
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 export function cardEl(suit, size, down) {
@@ -23,6 +24,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), inviteBtn: $("inviteBtn"),
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
+    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
     historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table")
   };
@@ -252,52 +254,59 @@ export function createTable({ send, roomCode, toast, audio }) {
     if (lobby) renderLobbyCentre(els, state);
   }
 
-  // The log above the table: one row per card flipped so far, with the bid
-  // every player made while it was the reference. The current reference gets
-  // a pending row until its bids are revealed. The deal timeline empties the
-  // rows so the first reference is not given away before it is flipped.
+  // The log above the table: one column per card flipped so far, one row
+  // per player with the bid they made while that card was the reference.
+  // The current reference gets a pending column until its bids are
+  // revealed. The deal timeline empties the log so the first reference is
+  // not given away before it is flipped.
   function renderLog() {
     const show = state.phase !== "lobby";
     els.log.hidden = !show;
     if (!show) return;
     const players = orderedPlayers(state);
+    const cols = state.history.map((h) => ({ suit: h.reference, entry: h }));
+    if (state.flipped.length > state.history.length) cols.push({ suit: state.flipped[state.flipped.length - 1], entry: null });
     els.logHead.replaceChildren();
-    const cardTh = document.createElement("th");
-    cardTh.textContent = "Card";
-    els.logHead.append(cardTh);
-    for (const p of players) {
+    const corner = document.createElement("th");
+    corner.className = "log-corner";
+    corner.scope = "col";
+    corner.textContent = "Card";
+    els.logHead.append(corner);
+    cols.forEach((col, i) => {
       const th = document.createElement("th");
-      th.textContent = p.id === state.you ? "You" : p.name.length > 8 ? `${p.name.slice(0, 8)}…` : p.name;
-      th.title = p.name;
-      th.style.setProperty("--seat-color", seatColor(state.players.findIndex((x) => x.id === p.id)));
-      if (p.id === state.you) th.classList.add("you");
+      th.className = "log-card";
+      th.scope = "col";
+      if (i === cols.length - 1) th.classList.add("current");
+      th.append(cardEl(col.suit, "mini"));
       els.logHead.append(th);
-    }
-    const rows = state.history.map((h) => ({ suit: h.reference, entry: h }));
-    if (state.flipped.length > state.history.length) rows.push({ suit: state.flipped[state.flipped.length - 1], entry: null });
+    });
     els.logBody.replaceChildren();
-    rows.forEach((row, i) => {
+    for (const p of players) {
       const tr = document.createElement("tr");
-      if (i === rows.length - 1) tr.classList.add("current");
-      const td = document.createElement("td");
-      td.className = "log-card";
-      td.append(cardEl(row.suit, "mini"));
-      tr.append(td);
-      for (const p of players) {
+      const name = document.createElement("th");
+      name.className = "log-name";
+      name.scope = "row";
+      name.textContent = p.id === state.you ? "You" : p.name.length > 8 ? `${p.name.slice(0, 8)}…` : p.name;
+      name.title = p.name;
+      name.style.setProperty("--seat-color", seatColor(state.players.findIndex((x) => x.id === p.id)));
+      if (p.id === state.you) name.classList.add("you");
+      tr.append(name);
+      cols.forEach((col, i) => {
         const cell = document.createElement("td");
-        if (row.entry) {
-          cell.textContent = String(row.entry.bids[p.id]);
-          if (row.entry.buyers.includes(p.id)) cell.classList.add("buyer");
+        if (i === cols.length - 1) cell.classList.add("current");
+        if (col.entry) {
+          cell.textContent = String(col.entry.bids[p.id]);
+          if (col.entry.buyers.includes(p.id)) cell.classList.add("buyer");
         } else {
           cell.textContent = "·";
           cell.classList.add("pending");
         }
         tr.append(cell);
-      }
+      });
       els.logBody.append(tr);
-    });
+    }
     const scroller = els.log.querySelector(".log-scroll");
-    scroller.scrollTop = scroller.scrollHeight;
+    scroller.scrollLeft = scroller.scrollWidth;
     const counts = countSuits(state.flipped);
     els.suitCounts.replaceChildren(...SUITS.map((suit) => {
       const chip = document.createElement("span");
@@ -352,12 +361,15 @@ export function createTable({ send, roomCode, toast, audio }) {
       clearTimeout(bidSendTimer);
       draft = {
         auction: state.auctionIndex,
-        amount: state.myBid ? state.myBid.amount : 0,
+        amount: state.myBid ? state.myBid.amount : DEFAULT_BID,
         locked: state.myBid ? state.myBid.locked : false
       };
       tenAnnounced = false;
       els.bidInput.value = draft.amount;
       els.bidRange.value = draft.amount;
+      // The server scores a silent player at 0, so the default the dock
+      // shows is sent as soon as the auction opens to make it the real bid.
+      if (!state.myBid) scheduleBidSend(true);
     }
     ringTotal = Math.max(1, state.timing.bidMs);
     deadlineAt = performance.now() + state.remainingMs;
@@ -418,7 +430,7 @@ export function createTable({ send, roomCode, toast, audio }) {
 
   function setDraftAmount(raw) {
     let n = Math.round(Number(raw));
-    if (!Number.isFinite(n)) n = 0;
+    if (!Number.isFinite(n)) n = DEFAULT_BID;
     n = Math.max(0, Math.min(100, n));
     draft.amount = n;
     draft.locked = false;
@@ -512,6 +524,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     switch (p.kind) {
       case "deal":
         announce("Dealing");
+        els.logHead.replaceChildren();
         els.logBody.replaceChildren();
         els.suitCounts.replaceChildren();
         runTimeline((ctx) => dealTimeline(ctx, handle, next));
@@ -546,7 +559,7 @@ export function createTable({ send, roomCode, toast, audio }) {
 
   function setConnected(ok) {
     connected = ok;
-    for (const id of ["bidInput", "bidRange", "lockBtn"]) els[id].disabled = !ok;
+    for (const id of ["bidInput", "bidRange", "bidDownBtn", "bidUpBtn", "lockBtn"]) els[id].disabled = !ok;
     if (!ok) clearTimeout(bidSendTimer);
     else resyncDraft = true;
   }
@@ -561,6 +574,15 @@ export function createTable({ send, roomCode, toast, audio }) {
   initLobbyControls(els, { send, roomCode, toast });
   els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value));
   els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value));
+  // A step always repaints the number, even while the number input holds
+  // focus (buttons do not take focus on every platform).
+  const step = (delta) => {
+    audio.play("tap");
+    setDraftAmount(draft.amount + delta);
+    els.bidInput.value = draft.amount;
+  };
+  els.bidDownBtn.addEventListener("click", () => step(-1));
+  els.bidUpBtn.addEventListener("click", () => step(1));
   els.lockBtn.addEventListener("click", lockBid);
   els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }));
 

@@ -1,10 +1,12 @@
-const { SUIT_SYMBOLS } = window.GameCore;
+const { SUIT_SYMBOLS, SUITS, POOL_PER_SUIT } = window.GameCore;
+const POOL = SUITS.length * POOL_PER_SUIT;
 const { paymentStreams, displayScores, payoutBaseline } = window.Transitions;
 
-// Worst case (24 cards, 8 of them yours): 24*70 + 350 + (8*50 + 400) + 2000 + 400
-// + (24*18 + 350) + 800 + 620 + 250 ≈ 8100 ms.
+// Worst case (2 players: 20 cards, 10 of them yours): 20*70 + 350 + (10*50 + 400)
+// + 2000 + 400 + 400 + (20*18 + 350) + 800 + 620 + 250 ≈ 7900 ms.
 // Transitions.DEAL_TIMELINE_MS (8500) must stay above this sum.
 const CARD_MS = 350;
+const SET_ASIDE_MS = 400;
 const DEAL_GAP_MS = 70;
 const LOOK_MS = 2000;
 const LOOK_STAGGER_MS = 50;
@@ -13,6 +15,9 @@ const GATHER_MS = 800;
 const SHUFFLE_MS = 800;
 const FLIP_MS = 400;
 const TURN_MS = 620;
+const COMPARE_MS = 800;
+const SLIDE_MS = 280;
+const BESIDE_GAP = 14;
 const HAND_MS = 250;
 const CHIPS_PER_STREAM = 6;
 const CHIP_GAP_MS = 60;
@@ -40,6 +45,35 @@ export function holdSpot(ctx, avatarEl, tableEl, round = 0) {
   const side = c.x < t.x + 1 ? 1 : -1;
   return { x: c.x + side * (c.w * 0.75 + round * 2), y: Math.max(c.y - c.h * 0.55, c.h * 0.85) - round * 2 };
 }
+
+// The pool that was not dealt is set aside unseen: a few card backs slide
+// off the deck and out of the table, and the deck fades until the hands
+// come back to rebuild it. Shared with the tutorial's second slide.
+export async function setAside(ctx, deckEl, deckCountEl, tableEl, count) {
+  const deck = ctx.centre(deckEl);
+  const table = ctx.centre(tableEl);
+  const gone = { x: table.x - table.w / 2 - deck.w, y: deck.y };
+  deckCountEl.textContent = "";
+  deckEl.classList.add("empty");
+  const n = Math.min(5, count);
+  const flights = [];
+  for (let i = 0; i < n; i++) {
+    const card = ctx.spawn("card small down");
+    ctx.put(card, deck);
+    ctx.animate(card, [{ opacity: 1 }, { opacity: 0 }], { duration: SET_ASIDE_MS, easing: "ease-in", fill: "forwards" }).catch(() => {});
+    flights.push(ctx.fly(card, deck, gone, SET_ASIDE_MS, { spin: -20 }).then(() => ctx.alive() && card.remove()));
+    await ctx.wait(30);
+  }
+  await ctx.until(Promise.all(flights.map((p) => p.catch(() => {}))));
+}
+
+// Where a flipped card rests for the comparison beat: just right of the
+// reference slot, so old and new suit sit side by side before the new one
+// takes the slot. Shared with the tutorial.
+export function besideSpot(slot) {
+  return { x: slot.x + slot.w + BESIDE_GAP, y: slot.y };
+}
+export { COMPARE_MS, SLIDE_MS };
 
 // Six chips per buyer→seller (or seller→buyer) pair, all streams in parallel,
 // each arrival ticking both seats' displayed scores. Lands exactly on `to`.
@@ -92,11 +126,18 @@ export async function dealTimeline(ctx, t, state) {
   }
   // Everything is dealt face down; your cards are shown on the real hand
   // fan once the deal is over, so nothing has to be read mid-flight.
+  // The deck starts as the full pool and counts down as hands leave it.
+  const total = n * players.length;
+  let inPool = POOL;
+  els.deck.classList.remove("empty");
+  els.deckCount.textContent = String(inPool);
   const sprites = [];
   const mine = [];
   for (const target of targets) {
     const card = ctx.spawn("card small down");
     ctx.put(card, deck);
+    inPool -= 1;
+    els.deckCount.textContent = String(inPool);
     sprites.push(card);
     let to;
     if (target.kind === "seat") {
@@ -126,8 +167,10 @@ export async function dealTimeline(ctx, t, state) {
   await ctx.wait(LOOK_MS);
   for (const p of players.slice(1)) t.seatEl(p.id).querySelector(".avatar").classList.remove("peek");
 
-  // Your cards flip face down and become sprites again, then everything
-  // gathers back into the deck.
+  // The rest of the pool is set aside unseen, then your cards flip face
+  // down and become sprites again, and only the hands gather back into
+  // the deck.
+  await setAside(ctx, els.deck, els.deckCount, els.table, inPool);
   await ctx.until(Promise.all(handCards.map((c) => ctx.flip(c, FLIP_MS, () => c.classList.add("down")).catch(() => {}))));
   const returning = handCards.map((c) => {
     const s = ctx.spawn("card small down");
@@ -140,13 +183,20 @@ export async function dealTimeline(ctx, t, state) {
   audio.play("shuffle");
   all.reverse();
   const gatherGap = Math.max(8, Math.floor((GATHER_MS - CARD_MS) / all.length));
+  let inDeck = 0;
   for (const card of all) {
     ctx.fly(card, ctx.centre(card), deck, CARD_MS, { spin: 180 }).then(() => {
-      if (ctx.alive()) card.remove();
+      if (!ctx.alive()) return;
+      card.remove();
+      inDeck += 1;
+      els.deck.classList.remove("empty");
+      els.deckCount.textContent = String(inDeck);
     });
     await ctx.wait(gatherGap);
   }
   await ctx.wait(CARD_MS);
+  els.deck.classList.remove("empty");
+  els.deckCount.textContent = String(total);
 
   // Riffle: two half stacks part and merge, twice.
   if (!ctx.reduced()) {
@@ -178,6 +228,7 @@ export async function dealTimeline(ctx, t, state) {
   });
   els.refSlot.style.visibility = "";
   top.remove();
+  els.deckCount.textContent = String(total - 1);
 
   // Your cards are in the deck now; a memo of what you saw takes their place.
   els.handMemo.hidden = false;
@@ -225,27 +276,32 @@ export async function revealCardTimeline(ctx, t, state) {
 
   // Flip: the state layer already shows the new reference. Hide it, stand in
   // the old reference as a sprite so the slot never goes empty, and turn the
-  // top card of the deck over onto it; the state layer takes over on landing.
+  // top card of the deck over to rest beside it. The two suits sit side by
+  // side through the match/miss flash, then the new card slides onto the
+  // slot and the state layer takes over.
   els.refSlot.style.visibility = "hidden";
   const deck = ctx.centre(els.deck);
   const slot = ctx.centre(els.refSlot);
+  const beside = besideSpot(slot);
   const old = ctx.spawn(`card big ${last.reference}`, SUIT_SYMBOLS[last.reference]);
   ctx.put(old, slot);
   const top = ctx.spawn("card big down");
   ctx.put(top, deck);
   await ctx.wait(120);
   audio.play("flip");
-  await ctx.turn(top, deck, slot, TURN_MS, () => {
+  await ctx.turn(top, deck, beside, TURN_MS, () => {
     top.className = `card big ${last.flipped}`;
     top.textContent = SUIT_SYMBOLS[last.flipped];
   });
-  els.refSlot.style.visibility = "";
-  top.remove();
-  old.remove();
   els.flash.className = `rail-flash ${last.matched ? "good" : "bad"}`;
   audio.play(last.matched ? "match" : "miss");
   t.announce(`${suitName(last.flipped)}, ${last.matched ? "match" : "miss"}`);
-  await ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 });
+  ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+  await ctx.wait(COMPARE_MS);
+  await ctx.fly(top, beside, slot, SLIDE_MS);
+  els.refSlot.style.visibility = "";
+  top.remove();
+  old.remove();
 
   // Payout leg (match only), then the net delta badges on every seat.
   const to = displayScores(state);

@@ -46,7 +46,7 @@ test("dealing snapshot has own hand, reference, null auction, timing, and no dec
   assert.equal(s.flipped.length, 1);
   assert.equal(s.cardsRemaining, 20);
   assert.equal(s.remainingMs, 9500);
-  assert.deepEqual(s.timing, { dealMs: 9500, bidMs: 30000, revealBidsMs: 4500, revealCardMs: 4000 });
+  assert.deepEqual(s.timing, { dealMs: 9500, bidMs: 30000, revealBidsMs: 4500, revealCardMs: 4500 });
   assert.equal(s.myBid, null);
   assert.deepEqual(s.history, []);
   assert.equal(s.players.every((p) => !("hand" in p) && !("locked" in p)), true);
