@@ -2,6 +2,7 @@ import { createNet } from "./net.js";
 import { initLanding, initJoin, setJoinState } from "./landing.js";
 import { createTable } from "./table.js";
 import { audio } from "./audio.js";
+import { createTutorial } from "./tutorial.js";
 
 const { plan } = window.Transitions;
 const $ = (id) => document.getElementById(id);
@@ -191,6 +192,7 @@ function route() {
 }
 
 function init() {
+  createTutorial($("tutorial"), { audio });
   initTopbar();
   initLanding({
     nameStore,
