@@ -60,7 +60,7 @@ async function payStreams(ctx, t, streams, from, to) {
 
 async function pop(ctx, el) {
   el.style.visibility = "";
-  await ctx.animate(el, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: 0.7 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
+  await ctx.animate(el, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: 0.7 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out", composite: "add" });
 }
 
 export async function dealTimeline(ctx, t, state) {

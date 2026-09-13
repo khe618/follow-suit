@@ -91,10 +91,10 @@ export function createAnim(layer) {
             await sctx.wait(150);
             return;
           }
-          const a = sctx.track(el.animate([{ transform: "rotateY(0deg)" }, { transform: "rotateY(90deg)" }], { duration: ms / 2, easing: "ease-in", fill: "forwards" }));
+          const a = sctx.track(el.animate([{ transform: "rotateY(0deg)" }, { transform: "rotateY(90deg)" }], { duration: ms / 2, easing: "ease-in", fill: "forwards", composite: "add" }));
           await sctx.until(a.finished.catch(() => {}));
           onHalf();
-          const b = sctx.track(el.animate([{ transform: "rotateY(90deg)" }, { transform: "rotateY(0deg)" }], { duration: ms / 2, easing: "ease-out" }));
+          const b = sctx.track(el.animate([{ transform: "rotateY(90deg)" }, { transform: "rotateY(0deg)" }], { duration: ms / 2, easing: "ease-out", composite: "add" }));
           a.cancel();
           await sctx.until(b.finished.catch(() => {}));
         }
