@@ -18,7 +18,7 @@ const kinds = (seq, meta = {}) => {
 test("keys and duplicate snapshots", () => {
   assert.equal(transitionKey(snap({ phase: "reveal", revealStep: "card", auctionIndex: 3 })), "1:reveal:card:3");
   assert.equal(transitionKey(snap({ phase: "dealing", auctionIndex: null })), "1:dealing::0");
-  const dealing = snap({ phase: "dealing", auctionIndex: null, remainingMs: 7000 });
+  const dealing = snap({ phase: "dealing", auctionIndex: null, remainingMs: 9500 });
   assert.deepEqual(kinds([dealing, dealing]), ["deal", "update"]);
   const bids = snap({ phase: "reveal", revealStep: "bids" });
   assert.deepEqual(kinds([snap(), bids, bids]), ["bidding", "revealBids", "update"]);
@@ -28,11 +28,11 @@ test("hydration draws the final frame whatever the phase", () => {
   const card = snap({ phase: "reveal", revealStep: "card" });
   assert.equal(plan(null, card, { hydrate: true }).kind, "hydrate");
   assert.equal(plan(snap(), card, { hydrate: true }).kind, "hydrate");
-  assert.equal(plan(null, snap({ phase: "dealing", auctionIndex: null, remainingMs: 7000 }), { hydrate: true }).kind, "hydrate");
+  assert.equal(plan(null, snap({ phase: "dealing", auctionIndex: null, remainingMs: 9500 }), { hydrate: true }).kind, "hydrate");
 });
 
 test("a first snapshot without hydrate is a real transition (quick play lands in dealing)", () => {
-  assert.equal(plan(null, snap({ phase: "dealing", auctionIndex: null, remainingMs: 7000 }), { hydrate: false }).kind, "deal");
+  assert.equal(plan(null, snap({ phase: "dealing", auctionIndex: null, remainingMs: 9500 }), { hydrate: false }).kind, "deal");
   assert.equal(plan(null, snap({ phase: "lobby", matchId: 0, auctionIndex: null }), { hydrate: false }).kind, "lobby");
 });
 
@@ -50,13 +50,13 @@ test("dealing without enough time left is drawn, not animated", () => {
 test("every phase transition maps to its kind, including skipped steps and a new match", () => {
   const seq = [
     snap({ phase: "lobby", matchId: 0, auctionIndex: null }),
-    snap({ phase: "dealing", auctionIndex: null, remainingMs: 7000 }),
+    snap({ phase: "dealing", auctionIndex: null, remainingMs: 9500 }),
     snap(),
     snap({ phase: "reveal", revealStep: "card" }),
     snap({ auctionIndex: 2 }),
     snap({ phase: "results", auctionIndex: null }),
     snap({ phase: "lobby", auctionIndex: null }),
-    snap({ phase: "dealing", matchId: 2, auctionIndex: null, remainingMs: 7000 })
+    snap({ phase: "dealing", matchId: 2, auctionIndex: null, remainingMs: 9500 })
   ];
   assert.deepEqual(kinds(seq), ["lobby", "deal", "bidding", "revealCard", "bidding", "results", "lobby", "deal"]);
 });

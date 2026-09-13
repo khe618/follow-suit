@@ -1,11 +1,14 @@
 const { SUIT_SYMBOLS } = window.GameCore;
 const { paymentStreams, displayScores, payoutBaseline } = window.Transitions;
 
-// Worst case (24 cards): 24*70 + 350 + 1200 + (24*18 + 350) + 200 + 800 + 250 + 400 + 250 ≈ 5910 ms.
-// Transitions.DEAL_TIMELINE_MS (6000) must stay above this sum.
+// Worst case (24 cards, 8 of them yours): 24*70 + 350 + (8*50 + 400) + 2000 + 400
+// + (24*18 + 350) + 800 + 250 + 400 + 250 ≈ 8100 ms.
+// Transitions.DEAL_TIMELINE_MS (8500) must stay above this sum.
 const CARD_MS = 350;
 const DEAL_GAP_MS = 70;
-const PEEK_MS = 1200;
+const LOOK_MS = 2000;
+const LOOK_STAGGER_MS = 50;
+const BIDS_PAUSE_MS = 1400;
 const GATHER_MS = 800;
 const SHUFFLE_MS = 800;
 const FLIP_MS = 400;
@@ -67,10 +70,10 @@ export async function dealTimeline(ctx, t, state) {
   const n = state.hand.length;
   const deck = ctx.centre(els.deck);
   const hiddenSpot = { x: deck.x - 70, y: deck.y + 30 };
-  els.hand.style.visibility = "hidden";
+  els.handFan.style.visibility = "hidden";
+  els.handMemo.hidden = true;
   els.refSlot.style.visibility = "hidden";
-  const handCards = [...els.hand.children];
-  const mySuits = handCards.map((c) => c.getAttribute("aria-label"));
+  const handCards = [...els.handFan.children];
   // Deal order per round: the seat to your left, on round to your right, then you, then a hidden card.
   const targets = [];
   for (let round = 0; round < n; round++) {
@@ -78,6 +81,8 @@ export async function dealTimeline(ctx, t, state) {
     targets.push({ kind: "me", index: round });
     targets.push({ kind: "hidden", round });
   }
+  // Everything is dealt face down; your cards are shown on the real hand
+  // fan once the deal is over, so nothing has to be read mid-flight.
   const sprites = [];
   const mine = [];
   for (const target of targets) {
@@ -95,34 +100,41 @@ export async function dealTimeline(ctx, t, state) {
       to = { x: hiddenSpot.x + target.round * 2, y: hiddenSpot.y - target.round * 2 };
     }
     audio.play("deal");
-    ctx.fly(card, deck, to, CARD_MS, { spin: target.kind === "me" ? 0 : 360 }).then(() => {
-      if (!ctx.alive() || target.kind !== "me") return;
-      const suit = mySuits[target.index];
-      // Flip face up on arrival. flip() throws the cancel sentinel if the run
-      // has moved on; swallow it here because this branch is not awaited.
-      ctx.flip(card, 200, () => {
-        card.className = `card small ${suit}`;
-        card.textContent = SUIT_SYMBOLS[suit];
-      }).catch(() => {});
-    });
+    ctx.fly(card, deck, to, CARD_MS, { spin: target.kind === "me" ? 0 : 360 });
     await ctx.wait(DEAL_GAP_MS);
   }
   await ctx.wait(CARD_MS);
 
-  // Peek: nothing moves; bots glance at their cards.
+  // The look: your sprites give way to the hand fan, which flips face up
+  // one card at a time and holds while the bots glance at their cards.
+  for (const card of mine) card.remove();
+  for (const c of handCards) c.classList.add("down");
+  els.handFan.style.visibility = "visible";
+  const flipUp = handCards.map(async (c, i) => {
+    await ctx.wait(i * LOOK_STAGGER_MS);
+    audio.play("flip");
+    await ctx.flip(c, FLIP_MS, () => c.classList.remove("down"));
+  });
+  await ctx.until(Promise.all(flipUp.map((p) => p.catch(() => {}))));
   for (const p of players.slice(1)) t.seatEl(p.id).querySelector(".avatar").classList.add("peek");
-  await ctx.wait(PEEK_MS);
+  await ctx.wait(LOOK_MS);
   for (const p of players.slice(1)) t.seatEl(p.id).querySelector(".avatar").classList.remove("peek");
 
-  // Your cards flip face down, then everything gathers back into the deck.
-  await ctx.until(Promise.all(mine.map((card) => ctx.flip(card, 200, () => {
-    card.className = "card small down";
-    card.textContent = "";
-  }).catch(() => {}))));
+  // Your cards flip face down and become sprites again, then everything
+  // gathers back into the deck.
+  await ctx.until(Promise.all(handCards.map((c) => ctx.flip(c, FLIP_MS, () => c.classList.add("down")).catch(() => {}))));
+  const returning = handCards.map((c) => {
+    const s = ctx.spawn("card small down");
+    ctx.put(s, ctx.centre(c));
+    return s;
+  });
+  els.handFan.style.visibility = "hidden";
+  for (const c of handCards) c.classList.remove("down");
+  const all = sprites.filter((s) => !mine.includes(s)).concat(returning);
   audio.play("shuffle");
-  sprites.reverse();
-  const gatherGap = Math.max(8, Math.floor((GATHER_MS - CARD_MS) / sprites.length));
-  for (const card of sprites) {
+  all.reverse();
+  const gatherGap = Math.max(8, Math.floor((GATHER_MS - CARD_MS) / all.length));
+  for (const card of all) {
     ctx.fly(card, ctx.centre(card), deck, CARD_MS, { spin: 180 }).then(() => {
       if (ctx.alive()) card.remove();
     });
@@ -162,9 +174,9 @@ export async function dealTimeline(ctx, t, state) {
   els.refSlot.style.visibility = "";
   top.remove();
 
-  // Your hand comes back up from the bottom edge (a fade under reduced motion).
-  els.hand.style.visibility = "";
-  await ctx.animate(els.hand, [{ transform: "translateY(24px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: HAND_MS, easing: "ease-out" });
+  // Your cards are in the deck now; a memo of what you saw takes their place.
+  els.handMemo.hidden = false;
+  await ctx.animate(els.handMemo, [{ transform: "translateY(12px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: HAND_MS, easing: "ease-out" });
   t.announce("Cards dealt");
 }
 
@@ -192,7 +204,8 @@ export async function revealBidsTimeline(ctx, t, state) {
   const nameOf = (id) => state.players.find((p) => p.id === id).name;
   t.announce(last.void ? "No trade" : `${last.buyers.map(nameOf).join(" and ")} ${last.buyers.length > 1 ? "buy" : "buys"} at ${last.price}`);
   if (last.void) return;
-  await ctx.wait(300);
+  // Let the bids sink in before the chips move.
+  await ctx.wait(BIDS_PAUSE_MS);
   await payStreams(ctx, t, paymentStreams(last, ids, "bids"), fromScores, displayScores(state));
 }
 

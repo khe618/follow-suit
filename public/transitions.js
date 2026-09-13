@@ -8,10 +8,11 @@
   "use strict";
 
   // Worst-case length of the deal timeline in timelines.js (24 cards at 70 ms
-  // plus the last flight, peek, gather, riffle, flip, and hand slide: about
-  // 5.7 s), rounded up. A dealing snapshot with less time left than this is
-  // drawn as its final frame instead. Keep in step with timelines.js.
-  const DEAL_TIMELINE_MS = 6000;
+  // plus the last flight, the staggered flip-up, the look, the flip-down,
+  // gather, riffle, reference flip, and memo fade: about 8.1 s), rounded up.
+  // A dealing snapshot with less time left than this is drawn as its final
+  // frame instead. Keep in step with timelines.js.
+  const DEAL_TIMELINE_MS = 8500;
   const PAYOUT = 100;
 
   function transitionKey(s) {

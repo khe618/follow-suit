@@ -21,7 +21,7 @@ export function createTable({ send, roomCode, toast, audio }) {
   const els = {
     seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), hiddenBadge: $("hiddenBadge"), refSlot: $("refSlot"),
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), seatCount: $("seatCount"), inviteBtn: $("inviteBtn"),
-    sprites: $("sprites"), river: $("river"), suitCounts: $("suitCounts"), hand: $("hand"), dock: $("dock"), bidInput: $("bidInput"),
+    sprites: $("sprites"), river: $("river"), suitCounts: $("suitCounts"), hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
     historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), auctionPill: $("auctionPill"), table: $("table")
   };
@@ -57,7 +57,8 @@ export function createTable({ send, roomCode, toast, audio }) {
   // Every non-update render starts from a clean state layer: nothing hidden
   // or pinned by a timeline, no leftover stacks, flashes, or sprites.
   function resetTransient() {
-    els.hand.style.visibility = "";
+    els.handFan.style.visibility = "";
+    els.handMemo.style.opacity = "";
     els.refSlot.style.visibility = "";
     els.priceBadge.style.visibility = "";
     els.priceBadge.style.opacity = "";
@@ -209,7 +210,7 @@ export function createTable({ send, roomCode, toast, audio }) {
       remove.hidden = !(lobby && p.isBot);
       remove.setAttribute("aria-label", `Remove ${p.name}`);
       // Away wins over locked: the server reports a disconnected human as locked.
-      const statusText = !p.connected ? "away" : state.phase === "bidding" ? (p.locked ? "locked" : "thinking") : "";
+      const statusText = !p.connected ? "away" : state.phase === "bidding" ? (p.locked ? "bid placed" : "thinking") : "";
       el.setAttribute("aria-label", `${p.name}, ${scores[p.id]} points${statusText ? ", " + statusText : ""}${p.isBot ? ", bot" : ""}`);
     });
     for (const [id, el] of seatEls) {
@@ -275,8 +276,12 @@ export function createTable({ send, roomCode, toast, audio }) {
     }));
   }
 
+  // The fan is only ever shown by the deal timeline (your cards, face up,
+  // for the look). After the shuffle-back the cards are in the deck, so the
+  // hand area shows a memo of what you were dealt instead.
   function renderHand() {
-    els.hand.replaceChildren();
+    els.handFan.replaceChildren();
+    els.handMemo.replaceChildren();
     const cards = state.hand ? bySuit(state.hand) : [];
     const n = cards.length;
     cards.forEach((suit, i) => {
@@ -284,8 +289,22 @@ export function createTable({ send, roomCode, toast, audio }) {
       const offset = i - (n - 1) / 2;
       c.style.setProperty("--rot", `${offset * 6}deg`);
       c.style.setProperty("--lift", `${Math.abs(offset) * 3}px`);
-      els.hand.append(c);
+      els.handFan.append(c);
     });
+    const inGame = state.phase !== "lobby" && n > 0;
+    els.handMemo.hidden = !inGame || state.phase === "dealing";
+    if (!inGame) return;
+    const label = document.createElement("span");
+    label.className = "memo-label";
+    label.textContent = "You were dealt";
+    els.handMemo.append(label);
+    const counts = countSuits(state.hand);
+    for (const suit of SUITS) {
+      const chip = document.createElement("span");
+      chip.className = `suit-chip ${suit}`;
+      chip.textContent = `${SUIT_SYMBOLS[suit]} ${counts[suit]}`;
+      els.handMemo.append(chip);
+    }
   }
 
   function renderTopbar() {
@@ -328,7 +347,7 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
 
   function paintLock() {
-    els.lockBtn.textContent = draft.locked ? "Locked" : "Lock";
+    els.lockBtn.textContent = draft.locked ? "Bid placed" : "Bid";
     els.lockBtn.classList.toggle("locked", draft.locked);
     els.ringArc.classList.toggle("locked", draft.locked);
   }
@@ -468,6 +487,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     resetTransient();
     if (p.kind === "hydrate") resyncDraft = true;
     drawAll();
+    // A dealing snapshot drawn as its final frame (no time left to animate).
+    if (state.phase === "dealing" && p.kind !== "deal") els.handMemo.hidden = false;
     switch (p.kind) {
       case "deal":
         announce("Dealing");

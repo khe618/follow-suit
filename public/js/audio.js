@@ -33,7 +33,7 @@ function ensure() {
   if (!AC) return null;
   ctx = new AC();
   const master = ctx.createGain();
-  master.gain.value = 0.9;
+  master.gain.value = 0.7;
   master.connect(ctx.destination);
   sfxBus = ctx.createGain();
   sfxBus.gain.value = sfxOn ? 1 : 0;
@@ -79,31 +79,31 @@ const vary = (base, pct = 0.1) => base * (1 - pct + Math.random() * 2 * pct);
 
 // ---------- sound effects ----------
 const SFX = {
-  deal: (t) => noise({ t, attack: 0.01, decay: 0.12, peak: 0.5, freq: vary(1800), q: 0.8 }),
+  deal: (t) => noise({ t, attack: 0.012, decay: 0.09, peak: 0.16, freq: vary(1400), q: 0.6 }),
   flip: (t) => {
-    tone({ type: "sine", freq: 2000, t, attack: 0.002, decay: 0.03, peak: 0.3 });
-    noise({ t: t + 0.02, attack: 0.01, decay: 0.15, peak: 0.4, freq: 1500, q: 0.8 });
+    tone({ type: "sine", freq: 2000, t, attack: 0.002, decay: 0.03, peak: 0.15 });
+    noise({ t: t + 0.02, attack: 0.01, decay: 0.15, peak: 0.22, freq: 1500, q: 0.8 });
   },
   shuffle: (t) => {
-    for (let i = 0; i < 12; i++) noise({ t: t + i * 0.02 + i * i * 0.004, attack: 0.004, decay: 0.05, peak: 0.35, freq: 2200 });
+    for (let i = 0; i < 12; i++) noise({ t: t + i * 0.02 + i * i * 0.004, attack: 0.004, decay: 0.05, peak: 0.16, freq: 2200 });
   },
-  chip: (t) => tone({ type: "triangle", freq: PENTATONIC[Math.floor(Math.random() * PENTATONIC.length)], t, attack: 0.003, decay: 0.08, peak: 0.35 }),
+  chip: (t) => tone({ type: "triangle", freq: PENTATONIC[Math.floor(Math.random() * PENTATONIC.length)], t, attack: 0.003, decay: 0.08, peak: 0.2 }),
   lock: (t) => {
-    noise({ t, attack: 0.005, decay: 0.12, peak: 0.6, filter: "lowpass", freq: 300, q: 0.7 });
-    tone({ type: "triangle", freq: 1046.5, t: t + 0.03, attack: 0.003, decay: 0.1, peak: 0.3 });
+    noise({ t, attack: 0.005, decay: 0.12, peak: 0.3, filter: "lowpass", freq: 300, q: 0.7 });
+    tone({ type: "triangle", freq: 1046.5, t: t + 0.03, attack: 0.003, decay: 0.1, peak: 0.2 });
   },
-  tag: (t) => tone({ type: "sine", freq: 900, t, attack: 0.002, decay: 0.05, peak: 0.2 }),
-  tick: (t, step = 0) => tone({ type: "sine", freq: 800 + step * 120, t, attack: 0.002, decay: 0.04, peak: 0.25 }),
-  rise: (t) => tone({ type: "triangle", freq: 660, t, attack: 0.01, decay: 0.15, peak: 0.3, glideTo: 990 }),
+  tag: (t) => tone({ type: "sine", freq: 900, t, attack: 0.002, decay: 0.05, peak: 0.12 }),
+  tick: (t, step = 0) => tone({ type: "sine", freq: 800 + step * 120, t, attack: 0.002, decay: 0.04, peak: 0.15 }),
+  rise: (t) => tone({ type: "triangle", freq: 660, t, attack: 0.01, decay: 0.15, peak: 0.2, glideTo: 990 }),
   match: (t) => {
-    tone({ type: "triangle", freq: 659.25, t, attack: 0.01, decay: 0.35, peak: 0.4 });
-    tone({ type: "triangle", freq: 987.77, t: t + 0.14, attack: 0.01, decay: 0.5, peak: 0.4 });
+    tone({ type: "triangle", freq: 659.25, t, attack: 0.01, decay: 0.35, peak: 0.28 });
+    tone({ type: "triangle", freq: 987.77, t: t + 0.14, attack: 0.01, decay: 0.5, peak: 0.28 });
   },
-  miss: (t) => tone({ type: "sine", freq: 160, t, attack: 0.01, decay: 0.4, peak: 0.6, glideTo: 70 }),
-  win: (t) => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone({ type: "triangle", freq: f, t: t + i * 0.13, attack: 0.01, decay: 0.4, peak: 0.4 })),
+  miss: (t) => tone({ type: "sine", freq: 160, t, attack: 0.01, decay: 0.4, peak: 0.35, glideTo: 70 }),
+  win: (t) => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone({ type: "triangle", freq: f, t: t + i * 0.13, attack: 0.01, decay: 0.4, peak: 0.3 })),
   end: (t) => [392, 493.88, 587.33].forEach((f) => tone({ type: "triangle", freq: f, t, attack: 0.05, decay: 1.2, peak: 0.2 })),
-  tap: (t) => tone({ type: "sine", freq: 1200, t, attack: 0.001, decay: 0.02, peak: 0.15 }),
-  dealin: (t) => noise({ t, attack: 0.01, decay: 0.2, peak: 0.3, freq: 1200, q: 0.6 })
+  tap: (t) => tone({ type: "sine", freq: 1200, t, attack: 0.001, decay: 0.02, peak: 0.1 }),
+  dealin: (t) => noise({ t, attack: 0.01, decay: 0.2, peak: 0.15, freq: 1200, q: 0.6 })
 };
 
 function play(name, arg) {

@@ -17,7 +17,7 @@
     <span id="connPill" class="pill warn" hidden>reconnecting</span>
     <div class="topbar-actions">
       <button type="button" id="sfxBtn" class="icon-btn" aria-label="Sound effects on" aria-pressed="true">🔊</button>
-      <button type="button" id="helpBtn" class="icon-btn" aria-label="How to play">?</button>
+      <button type="button" id="helpBtn" class="icon-btn labeled">How to play</button>
       <button type="button" id="leaveBtn" class="icon-btn" aria-label="Leave table" hidden>⇠</button>
     </div>
   </header>
@@ -62,14 +62,17 @@
         <div id="sprites" class="sprite-layer" aria-hidden="true"></div>
       </div>
       <div class="river-row"><div id="river" class="river"></div><div id="suitCounts" class="suit-counts"></div></div>
-      <div id="hand" class="hand" aria-label="Your hand"></div>
+      <div id="hand" class="hand">
+        <div id="handFan" class="hand-fan" aria-hidden="true"></div>
+        <div id="handMemo" class="hand-memo" aria-label="Your hand" hidden></div>
+      </div>
       <div id="dock" class="dock" hidden>
         <div class="ring-wrap">
           <svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="45"/><circle id="ringArc" class="ring-arc" cx="50" cy="50" r="45"/></svg>
           <input id="bidInput" type="number" min="0" max="100" step="1" value="0" inputmode="numeric" aria-label="Your bid">
         </div>
         <input id="bidRange" type="range" min="0" max="100" step="1" value="0" aria-label="Your bid">
-        <button type="button" id="lockBtn" class="chip-btn primary">Lock</button>
+        <button type="button" id="lockBtn" class="chip-btn primary">Bid</button>
       </div>
     </section>
 
