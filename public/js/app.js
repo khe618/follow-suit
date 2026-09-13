@@ -151,7 +151,6 @@ function enterRoom(code) {
     onTakenOver() {
       if (myNet !== net) return;
       myTable.dispose();
-      audio.musicPause();
       showView("takenOverView");
     },
     onConnection(ok) {
@@ -170,12 +169,9 @@ function initTopbar() {
   const paint = () => {
     $("sfxBtn").setAttribute("aria-pressed", String(audio.sfxEnabled()));
     $("sfxBtn").setAttribute("aria-label", audio.sfxEnabled() ? "Sound effects on" : "Sound effects off");
-    $("musicBtn").setAttribute("aria-pressed", String(audio.musicEnabled()));
-    $("musicBtn").setAttribute("aria-label", audio.musicEnabled() ? "Music on" : "Music off");
   };
   paint();
   $("sfxBtn").addEventListener("click", () => { audio.unlock(); audio.setSfx(!audio.sfxEnabled()); audio.play("tap"); paint(); });
-  $("musicBtn").addEventListener("click", () => { audio.unlock(); audio.setMusic(!audio.musicEnabled()); paint(); });
   $("leaveBtn").addEventListener("click", () => location.assign("/"));
   $("leaveResultsBtn").addEventListener("click", () => location.assign("/"));
   $("reloadBtn").addEventListener("click", () => location.reload());

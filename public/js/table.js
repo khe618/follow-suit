@@ -33,6 +33,8 @@ export function createTable({ send, roomCode, toast, audio }) {
   let deadlineAt = 0;
   let ringTotal = 1;
   let ringTimer = null;
+  let lastTickSecond = -1;
+  let tenAnnounced = false;
   let connected = true;
 
   const anim = createAnim(els.sprites);
@@ -313,6 +315,7 @@ export function createTable({ send, roomCode, toast, audio }) {
         amount: state.myBid ? state.myBid.amount : 0,
         locked: state.myBid ? state.myBid.locked : false
       };
+      tenAnnounced = false;
       els.bidInput.value = draft.amount;
       els.bidRange.value = draft.amount;
     }
@@ -332,7 +335,18 @@ export function createTable({ send, roomCode, toast, audio }) {
     const ms = Math.max(0, deadlineAt - performance.now());
     const fraction = Math.min(1, ms / ringTotal);
     els.ringArc.style.strokeDashoffset = String(RING_LENGTH * (1 - fraction));
-    els.ringArc.classList.toggle("urgent", ms < 5000 && !draft.locked);
+    if (!tenAnnounced && ms > 0 && ms <= 10000) {
+      tenAnnounced = true;
+      announce("Ten seconds left");
+    }
+    const urgent = ms < 5000 && !draft.locked;
+    els.ringArc.classList.toggle("urgent", urgent);
+    const second = Math.ceil(ms / 1000);
+    if (urgent && second !== lastTickSecond && second > 0) {
+      lastTickSecond = second;
+      audio.play("tick", 5 - second);
+    }
+    if (!urgent) lastTickSecond = -1;
   }
   function startRing() {
     tickRing();
