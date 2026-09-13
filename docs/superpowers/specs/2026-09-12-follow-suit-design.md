@@ -90,7 +90,7 @@ Private: each player's own hand. Never shown: the set-aside remainder of the poo
 | --- | --- |
 | `/` | Landing: enter a name, create a room, or join by 4-letter code |
 | `/abcd` (any 4 lowercase letters) | The app shell for that room |
-| `/api/new-room` | JSON `{ room }` with an unused 4-letter code |
+| `/api/new-room` | JSON `{ ok: true, room }` with an unused 4-letter code |
 | `/how-to-play` | Static rules page |
 | anything else | HTML requests redirect to `/`; other requests get a JSON 404 |
 
@@ -100,7 +100,7 @@ The client is one page with four views: **name**, **lobby**, **game**, **results
 
 **Name.** Name input, remembered in `localStorage`. Creating a room calls `/api/new-room` and navigates to `/abcd`. Joining by code navigates to `/abcd`. On a room URL, the name view shows the room code and a single Join button.
 
-**Lobby.** Player list with bot badges, a copyable room link, and the rules in one paragraph with a link to `/how-to-play`. The host sees Add bot, Remove bot, and Start. Start is enabled at two or more seats. The host is the earliest-joined connected human. If the host disconnects, the next earliest connected human becomes host.
+**Lobby.** Player list with bot badges, a copyable room link, and the rules in one paragraph with a link to `/how-to-play`. The host sees Add bot, Remove bot, and Start. Start is enabled at two or more seats. The host is the earliest-joined connected human. If the host disconnects, the next earliest connected human becomes host; with no human connected there is no host.
 
 **Game.** Laid out for a phone first:
 
@@ -116,7 +116,7 @@ A `join` is accepted only while the room is in the lobby phase, or when it carri
 
 ### 3.3 Bots
 
-The host adds bots in the lobby, up to the six-seat cap, so a room can hold up to five bots. Bots live entirely on the server and hold no socket. Each bot has a unique name from a fixed list of five and a bidding profile assigned in order of addition, cycling back to the first profile for the fifth bot:
+The host adds bots in the lobby, up to the six-seat cap, so a room can hold up to five bots. Bots live entirely on the server and hold no socket. Each bot has a unique name from a fixed list of five and a bidding profile assigned in order of addition, cycling back to the first profile for the fifth bot. Humans cannot join under a bot's name:
 
 | Profile | Shade | Noise σ |
 | --- | --- | --- |
@@ -212,14 +212,14 @@ Disconnecting does not erase a stored bid. A player who resumes before resolutio
 
 ### 4.5 Wire protocol
 
-JSON messages over one WebSocket per client.
+JSON messages over one WebSocket per client. The socket is opened at `/ws?room=abcd`, so the room is fixed for the life of the connection and no message carries it.
 
 Client → server:
 
 | type | fields | notes |
 | --- | --- | --- |
-| `join` | `room, name, resumeToken?` | new seat, or adopt if token matches |
-| `resume` | `room, resumeToken` | adopt seat without a name |
+| `join` | `name, resumeToken?` | new seat, or adopt if token matches |
+| `resume` | `resumeToken` | adopt seat without a name |
 | `add-bot` | | host, lobby only |
 | `remove-bot` | `playerId` | host, lobby only |
 | `start-game` | | host |
@@ -235,6 +235,8 @@ Server → client:
 | `error` | `message` |
 
 `state` is rebuilt per recipient on every broadcast and contains: room code, phase, `matchId`, `revealStep`, `remainingMs` for the current deadline, host id, players (id, name, isBot, connected, score, `locked` during bidding), reference card, flipped cards in order, cards remaining, hidden-card count, the recipient's own hand, the recipient's own current bid and lock state, the current auction index, the full public history so far, and all hands when the phase is results. The history includes the in-progress auction's entry only once its bids are revealed. A client that reloads mid-game therefore sees exactly the same public record as one that stayed connected.
+
+A visitor on the name screen, before joining, receives only the room code, phase, player count, and seat cap. There are no spectators.
 
 Never included for a recipient, in any phase before results: the deck, other players' hands, other players' bid amounts for the current auction before reveal, or any bot's fair-value input.
 

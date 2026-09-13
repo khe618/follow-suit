@@ -21,7 +21,8 @@
 - All timers in `lib/` are injected (`now`, `setTimeout`, `clearTimeout`) so tests never sleep.
 - Every commit message ends with the two attribution lines given in the session's system reminder.
 - Tests: `npm test` runs `node --test`. Do not add other test runners.
-- Work on `master` in `C:\dev\follow-suit` (fresh repo, no worktree needed).
+- Work on `main` in `C:\dev\follow-suit` (fresh repo, no worktree needed).
+- Every shell command in this plan is written for the Bash tool, which runs Git Bash on this machine. `PORT=3210 npm start`, `grep`, and `curl` are correct as written; do not translate them to PowerShell.
 
 ---
 
@@ -348,6 +349,18 @@ const { nextSuitProbabilities, fairValue } = require("../lib/fair-value.js");
 const zero = () => ({ spades: 0, hearts: 0, diamonds: 0, clubs: 0 });
 const sum = (p) => SUITS.reduce((a, s) => a + p[s], 0);
 
+// mulberry32: a small seeded PRNG so the Monte Carlo below is reproducible.
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 test("probabilities sum to 1", () => {
   const p = nextSuitProbabilities({ hand: { spades: 3, hearts: 2, diamonds: 2, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 2, clubs: 0 }, playerCount: 2 });
   assert.ok(Math.abs(sum(p) - 1) < 1e-12);
@@ -358,10 +371,19 @@ test("uniform hand with no flips gives the pool prior", () => {
   for (const s of SUITS) assert.ok(Math.abs(p[s] - 0.25) < 1e-12, `${s}=${p[s]}`);
 });
 
-test("a hand heavy in one suit raises that suit", () => {
+test("with no flips the answer equals the closed form (hand + expected unseen) / deck", () => {
+  // Two players, hand 6/1/1/0. The 16 unseen deck cards are a uniform draw
+  // from the 32 pool cards left, which hold 4 spades, 9 hearts, 9 diamonds and
+  // 10 clubs, so E[deck spades] = 6 + 16 * 4/32 = 8 and P(spades) = 8/24.
   const p = nextSuitProbabilities({ hand: { spades: 6, hearts: 1, diamonds: 1, clubs: 0 }, flips: zero(), playerCount: 2 });
-  assert.ok(p.spades > 0.3 && p.spades < 0.36, `spades=${p.spades}`);
-  assert.ok(p.clubs < p.hearts);
+  const expected = {
+    spades: (6 + 16 * 4 / 32) / 24,
+    hearts: (1 + 16 * 9 / 32) / 24,
+    diamonds: (1 + 16 * 9 / 32) / 24,
+    clubs: (0 + 16 * 10 / 32) / 24
+  };
+  for (const s of SUITS) assert.ok(Math.abs(p[s] - expected[s]) < 1e-9, `${s}: ${p[s]} vs ${expected[s]}`);
+  assert.ok(Math.abs(p.spades - 1 / 3) < 1e-9);
 });
 
 test("flipping a suit lowers it", () => {
@@ -381,14 +403,13 @@ test("rejects a hand of the wrong size", () => {
 });
 
 // Monte Carlo of the real procedure, conditioning by rejection on both the
-// hand and the flips. Cases are chosen so rejection is cheap enough to run in
-// a few seconds; a rare hand plus specific flips would take far longer.
-function monteCarlo({ hand, flips, playerCount }, samples) {
+// hand and the flips.
+function monteCarlo({ hand, flips, playerCount }, samples, random) {
   const n = handSize(playerCount);
   const k = sum(flips);
   const hits = zero();
   let accepted = 0;
-  const randomInt = (m) => Math.floor(Math.random() * m);
+  const randomInt = (m) => Math.floor(random() * m);
   while (accepted < samples) {
     const pool = shuffle(buildPool(), randomInt);
     const hc = countSuits(pool.slice(0, n));
@@ -404,16 +425,21 @@ function monteCarlo({ hand, flips, playerCount }, samples) {
   return out;
 }
 
-test("agrees with Monte Carlo of the dealing procedure", { timeout: 120000 }, () => {
+// The cases use hands that occur a few percent of the time and at most one
+// flip, so rejection sampling accepts a few percent of draws and 100k accepted
+// samples take seconds, not minutes. Standard error is about 0.0014 per suit,
+// and the seed is fixed, so the outcome is deterministic. The rare
+// six-of-a-suit hand is covered by the closed-form test above.
+test("agrees with a seeded Monte Carlo of the dealing procedure", { timeout: 180000 }, () => {
   const cases = [
     { hand: { spades: 2, hearts: 2, diamonds: 2, clubs: 2 }, flips: zero(), playerCount: 2 },
-    { hand: { spades: 6, hearts: 1, diamonds: 1, clubs: 0 }, flips: zero(), playerCount: 2 },
-    { hand: { spades: 1, hearts: 1, diamonds: 1, clubs: 1 }, flips: { spades: 2, hearts: 1, diamonds: 0, clubs: 0 }, playerCount: 4 }
+    { hand: { spades: 1, hearts: 1, diamonds: 1, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 0, clubs: 0 }, playerCount: 4 }
   ];
+  const random = seeded(20260913);
   for (const c of cases) {
     const exact = nextSuitProbabilities(c);
-    const mc = monteCarlo(c, 20000);
-    for (const s of SUITS) assert.ok(Math.abs(exact[s] - mc[s]) < 0.012, `${JSON.stringify(c)} ${s}: exact ${exact[s]} mc ${mc[s]}`);
+    const mc = monteCarlo(c, 100000, random);
+    for (const s of SUITS) assert.ok(Math.abs(exact[s] - mc[s]) < 0.005, `${JSON.stringify(c)} ${s}: exact ${exact[s]} mc ${mc[s]}`);
   }
 });
 ```
@@ -500,7 +526,7 @@ module.exports = { nextSuitProbabilities, fairValue };
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `node --test tests/fair-value.test.js`
-Expected: all PASS. The Monte Carlo test should take under a minute.
+Expected: all PASS. The Monte Carlo test should take roughly ten seconds.
 
 - [ ] **Step 5: Commit**
 
@@ -791,13 +817,26 @@ test("all locked resolves early and the stale deadline is harmless", () => {
   assert.equal(game.history.length, 1);
 });
 
-test("a lock arriving in the same tick as the deadline settles once", () => {
-  const { clock, game } = setup();
-  game.bid("p1", { auction: 1, amount: 30, locked: true });
-  clock.advance(19999);
-  game.bid("p2", { auction: 1, amount: 10, locked: true });
-  clock.advance(1);
-  assert.equal(game.history.length, 1);
+test("a lock and the deadline at the same instant settle exactly once, in either order", () => {
+  // Order 1: the lock lands just before the deadline fires.
+  const first = setup();
+  first.game.bid("p1", { auction: 1, amount: 30, locked: true });
+  first.clock.advance(19999);
+  first.game.bid("p2", { auction: 1, amount: 10, locked: true });
+  first.clock.advance(1);
+  assert.equal(first.game.history.length, 1);
+  assert.deepEqual(first.game.history[0].bids, { p1: 30, p2: 10 });
+  // Order 2: the deadline fires first. The fake clock runs timers due at the
+  // same time in arming order, and the game armed its deadline at start, so a
+  // bid scheduled for exactly 20000 runs after the deadline resolved.
+  const second = setup();
+  second.game.bid("p1", { auction: 1, amount: 30, locked: true });
+  const late = [];
+  second.clock.setTimeout(() => late.push(second.game.bid("p2", { auction: 1, amount: 10, locked: true })), 20000);
+  second.clock.advance(20000);
+  assert.equal(second.game.history.length, 1);
+  assert.deepEqual(second.game.history[0].bids, { p1: 30, p2: 0 });
+  assert.deepEqual(late, [{ ok: false, error: "not_bidding" }]);
 });
 
 test("settlement applies score deltas and the flipped card becomes the reference", () => {
@@ -896,9 +935,10 @@ test("the last auction leads to results with hands revealed and no pending timer
   assert.equal(sum, 0);
 });
 
-test("returnToLobby then start again shares no state", () => {
+test("two consecutive full games in one instance share no state", () => {
   const { clock, game } = setup();
   playWholeGame(clock, game);
+  const firstDeck = game.deck.slice();
   assert.equal(game.returnToLobby(), true);
   assert.equal(game.phase, "lobby");
   assert.deepEqual(game.history, []);
@@ -913,8 +953,17 @@ test("returnToLobby then start again shares no state", () => {
   assert.equal(game.auction.index, 1);
   assert.deepEqual(game.history, []);
   assert.equal(game.deck.length, 24);
+  assert.equal(game.flipIndex, 1);
   assert.equal(game.players.every((p) => p.score === 0), true);
   assert.equal(clock.pending(), 1);
+  playWholeGame(clock, game);
+  assert.equal(game.phase, "results");
+  assert.equal(game.history.length, 23);
+  assert.equal(game.history.every((h) => h.index >= 1 && h.index <= 23 && h.deltas !== null), true);
+  assert.equal(game.players.length, 3);
+  assert.equal(game.players.reduce((a, p) => a + p.score, 0), 0);
+  assert.equal(clock.pending(), 0);
+  assert.notEqual(game.deck.length, firstDeck.length, "three players deal a different deck size than two");
 });
 
 test("returnToLobby is refused outside results", () => {
@@ -1110,14 +1159,14 @@ function createGame(deps = {}) {
     return { ok: true };
   }
 
+  // Both transitions below compute the whole result first and only then touch
+  // game state, so a throw during the computation leaves the room as it was.
   function resolve() {
     if (game.phase !== "bidding") return;
-    clearPhaseTimer();
-    clearBotTimers();
     const bids = {};
     for (const p of game.players) bids[p.id] = game.auction.bids[p.id] ? game.auction.bids[p.id].amount : 0;
     const r = resolveBids(bids);
-    game.history.push({
+    const entry = {
       index: game.auction.index,
       reference: reference(),
       bids,
@@ -1127,7 +1176,10 @@ function createGame(deps = {}) {
       flipped: null,
       matched: null,
       deltas: null
-    });
+    };
+    clearPhaseTimer();
+    clearBotTimers();
+    game.history.push(entry);
     game.phase = "reveal";
     game.revealStep = "bids";
     armTimer("revealBids", config.revealBidsMs, flipAndSettle);
@@ -1136,11 +1188,10 @@ function createGame(deps = {}) {
 
   function flipAndSettle() {
     const entry = game.history[game.history.length - 1];
-    const previous = reference();
     const card = game.deck[game.flipIndex];
-    game.flipIndex += 1;
-    const matched = card === previous;
+    const matched = card === reference();
     const result = settle(entry.bids, matched);
+    game.flipIndex += 1;
     entry.flipped = card;
     entry.matched = matched;
     entry.deltas = result.deltas;
@@ -1220,8 +1271,9 @@ git commit -m "feat: auction state machine with guarded timers"
     hand: string[] | null, myBid: { amount, locked } | null,
     history: [...game.history entries...], minPlayers, maxPlayers, handSize }
   ```
+  - For `recipientId === null` (a visitor on the name screen) the message is only `{ type: "state", room, phase, you: null, playerCount, maxPlayers }`. Visitors never receive cards, bids, scores, or history; there are no spectators.
   - In the lobby, `players` comes from `room.seats` with `score: 0`. Otherwise from `game.players`.
-  - `locked` is present only during bidding. `hand` on a player is present only in results.
+  - `locked` is present only during bidding: `true` for a bot once it has bid, and for a human when they locked or are disconnected (the game treats a disconnected human as locked). `hand` on a player is present only in results.
   - `hand` (top level) is the recipient's hand, or `null` when the recipient has no seat or no match is running.
   - Never present: the deck, another player's hand before results, another player's current bid amount before reveal.
 
@@ -1248,20 +1300,22 @@ function makeRoom() {
   return { clock, game, room };
 }
 
-const FORBIDDEN_TOP = ["deck"];
+// Exact allowlists. Anything not listed here is a leak, whatever it is called.
+const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "hostId", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
+const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
+const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
+const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "price", "void", "flipped", "matched", "deltas"].sort();
 
-function assertNoLeak(state, recipientId) {
-  for (const key of FORBIDDEN_TOP) assert.equal(key in state, false, `${key} leaked`);
+function assertShape(state) {
+  assert.deepEqual(Object.keys(state).sort(), STATE_KEYS);
   for (const p of state.players) {
-    if (state.phase !== "results") assert.equal("hand" in p, false, `hand leaked for ${p.id}`);
-    assert.equal("bid" in p, false);
-    assert.equal("amount" in p, false);
-    assert.equal("profile" in p, false);
-    assert.equal("fair" in p, false);
+    const allowed = [...PLAYER_KEYS];
+    if (state.phase === "bidding") allowed.push("locked");
+    if (state.phase === "results") allowed.push("hand");
+    assert.deepEqual(Object.keys(p).sort(), allowed.sort(), `player ${p.id} keys`);
   }
-  const json = JSON.stringify(state);
-  assert.equal(json.includes("shade"), false, "bot profile leaked");
-  if (recipientId === null) assert.equal(state.hand, null);
+  for (const h of state.history) assert.deepEqual(Object.keys(h).sort(), HISTORY_KEYS);
+  assert.equal(JSON.stringify(state).includes("shade"), false, "bot profile leaked");
 }
 
 test("lobby snapshot lists seats and hides nothing sensitive", () => {
@@ -1277,10 +1331,32 @@ test("lobby snapshot lists seats and hides nothing sensitive", () => {
   assert.equal(s.hand, null);
   assert.equal(s.minPlayers, 2);
   assert.equal(s.maxPlayers, 6);
-  assertNoLeak(s, "p1");
+  assertShape(s);
   const visitor = buildState(room, null);
+  assert.deepEqual(Object.keys(visitor).sort(), VISITOR_KEYS);
   assert.equal(visitor.you, null);
-  assertNoLeak(visitor, null);
+  assert.equal(visitor.playerCount, 3);
+  assert.equal(visitor.phase, "lobby");
+});
+
+test("visitors get nothing about a running match", () => {
+  const { room, game, clock } = makeRoom();
+  game.start([...room.seats.values()]);
+  clock.advance(20000);
+  const visitor = buildState(room, null);
+  assert.deepEqual(Object.keys(visitor).sort(), VISITOR_KEYS);
+  assert.equal(visitor.phase, "reveal");
+  assert.equal(visitor.playerCount, 3);
+});
+
+test("a disconnected human reads as locked, a bot only once it has bid", () => {
+  const { room, game } = makeRoom();
+  game.start([...room.seats.values()]);
+  game.setConnected("p2", false);
+  const s = buildState(room, "p1");
+  assert.equal(s.players.find((p) => p.id === "p2").locked, true);
+  assert.equal(s.players.find((p) => p.id === "p3").locked, false);
+  assert.equal(s.players.find((p) => p.id === "p1").locked, false);
 });
 
 test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
@@ -1301,7 +1377,7 @@ test("bidding snapshot shows own hand and bid, others' lock flags only", () => {
   assert.equal(s1.cardsRemaining, 23);
   assert.equal(s1.hiddenCount, 6);
   assert.equal(s1.handSize, 6);
-  assertNoLeak(s1, "p1");
+  assertShape(s1);
   const s2 = buildState(room, "p2");
   assert.deepEqual(s2.myBid, { amount: 33, locked: true });
   assert.deepEqual(s2.hand, game.players[1].hand);
@@ -1333,7 +1409,7 @@ test("reveal(bids) snapshot exposes the current auction's bids via history only"
   assert.equal(s.history[0].flipped, null);
   assert.equal(s.myBid, null);
   assert.equal(s.remainingMs, 0);
-  assertNoLeak(s, "p1");
+  assertShape(s);
 });
 
 test("results snapshot reveals every hand", () => {
@@ -1348,7 +1424,7 @@ test("results snapshot reveals every hand", () => {
   assert.equal(s.phase, "results");
   for (const p of s.players) assert.equal(p.hand.length, 6);
   assert.equal(s.history.length, 23);
-  assert.equal("deck" in s, false);
+  assertShape(s);
 });
 ```
 
@@ -1371,13 +1447,25 @@ function buildState(room, recipientId) {
   const inMatch = game.phase !== "lobby";
   const bidding = game.phase === "bidding";
 
+  // Visitors on the name screen learn only enough to decide whether to join.
+  if (recipientId === null) {
+    return {
+      type: "state",
+      room: room.code,
+      phase: game.phase,
+      you: null,
+      playerCount: inMatch ? game.players.length : room.seats.size,
+      maxPlayers: MAX_PLAYERS
+    };
+  }
+
   let players;
   if (inMatch) {
     players = game.players.map((p) => {
       const row = { id: p.id, name: p.name, isBot: p.isBot, connected: p.connected, score: p.score };
       if (bidding) {
         const b = game.auction.bids[p.id];
-        row.locked = Boolean(b && (p.isBot || b.locked));
+        row.locked = p.isBot ? Boolean(b) : (!p.connected || Boolean(b && b.locked));
       }
       if (game.phase === "results") row.hand = p.hand.slice();
       return row;
@@ -1386,7 +1474,7 @@ function buildState(room, recipientId) {
     players = [...room.seats.values()].map((s) => ({ id: s.id, name: s.name, isBot: s.isBot, connected: s.connected, score: 0 }));
   }
 
-  const me = inMatch && recipientId ? game.players.find((p) => p.id === recipientId) : null;
+  const me = inMatch ? game.players.find((p) => p.id === recipientId) || null : null;
   const myBidRaw = me && bidding ? game.auction.bids[me.id] : null;
   const playerCount = inMatch ? game.players.length : room.seats.size;
   let size = null;
@@ -1457,7 +1545,8 @@ git commit -m "feat: per-recipient state snapshot with secrecy tests"
   - `addBot(room) → { ok, seat | error }`, `removeBot(room, id) → boolean`
   - `startGame(room) → { ok } | { ok: false, error: "not_lobby" | "need_players" }` (drops disconnected human seats first)
   - `returnToLobby(room) → boolean` (sweeps seats disconnected longer than the TTL, arms expiry for the rest)
-  - `deleteRoom(room)`, `hostId(room)`, `SEAT_TAKEN_OVER_CODE = 4000`
+  - `deleteRoom(room)`, `hostId(room)` (earliest connected human, else `null`), `SEAT_TAKEN_OVER_CODE = 4000`
+  - Seat expiry timers run for disconnects in the lobby and results phases; disconnects during bidding or reveal are swept by `returnToLobby`. Every timer callback is wrapped in try/catch.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1518,7 +1607,7 @@ test("join creates a seat with a token; hostId is the earliest connected human",
   registry.disconnect(room, a.seat, w1);
   assert.equal(room.hostId(), "p2");
   registry.disconnect(room, b.seat, w2);
-  assert.equal(room.hostId(), "p1");
+  assert.equal(room.hostId(), null, "no connected human means no host");
 });
 
 test("join is refused when full or when a game is running", () => {
@@ -1679,6 +1768,29 @@ test("returnToLobby sweeps long-disconnected seats and arms expiry for the rest"
   assert.equal(room.seats.has("p3"), false);
 });
 
+test("a seat that disconnects on the results screen expires after the TTL; standings stay intact", () => {
+  const { clock, registry } = setup();
+  const room = registry.getOrCreate("abcd");
+  const w1 = fakeWs();
+  const w2 = fakeWs();
+  registry.join(room, { name: "Ann", ws: w1 });
+  const { seat: b } = registry.join(room, { name: "Ben", ws: w2 });
+  registry.startGame(room);
+  while (room.game.phase !== "results") {
+    if (room.game.phase === "bidding") {
+      room.game.bid("p1", { auction: room.game.auction.index, amount: 10, locked: true });
+      room.game.bid("p2", { auction: room.game.auction.index, amount: 5, locked: true });
+    }
+    clock.advance(5500);
+  }
+  registry.disconnect(room, b, w2);
+  clock.advance(TTL);
+  assert.equal(room.seats.has("p2"), false);
+  assert.equal(registry.resume(room, b.resumeToken, fakeWs()), null, "expired token is dead");
+  assert.equal(room.game.phase, "results");
+  assert.equal(room.game.players.length, 2, "standings keep the departed player");
+});
+
 test("a visitor-only room is deleted when its last visitor leaves", () => {
   const { registry } = setup();
   const room = registry.getOrCreate("abcd");
@@ -1750,11 +1862,11 @@ function createRegistry(deps) {
     return [...room.seats.values()].filter((s) => !s.isBot);
   }
 
+  // The earliest-joined connected human. With nobody connected there is no
+  // host; nobody could act on the role anyway.
   function hostId(room) {
-    const h = humans(room);
-    const connected = h.find((s) => s.connected);
-    if (connected) return connected.id;
-    return h.length ? h[0].id : null;
+    const connected = humans(room).find((s) => s.connected);
+    return connected ? connected.id : null;
   }
 
   function getOrCreate(code) {
@@ -1785,17 +1897,33 @@ function createRegistry(deps) {
     }
   }
 
-  // Lobby-only: a disconnected seat is dropped after `ms`. If the phase has
-  // moved on by then the roster is frozen and the timer does nothing.
+  function guarded(label, fn) {
+    return () => {
+      try {
+        fn();
+      } catch (err) {
+        console.error(`[rooms] ${label} failed:`, err);
+      }
+    };
+  }
+
+  function expiryAllowed(room) {
+    const p = phase(room);
+    return p === "lobby" || p === "results";
+  }
+
+  // Lobby and results only: a disconnected seat is dropped after `ms`. If a
+  // game is running by then the roster is frozen and the timer does nothing;
+  // returnToLobby sweeps such seats instead.
   function scheduleSeatExpiry(room, seat, ms) {
     cancelSeatExpiry(seat);
-    seat.expiryTimer = setT(() => {
+    seat.expiryTimer = setT(guarded("seat expiry", () => {
       seat.expiryTimer = null;
       if (seat.connected || !room.seats.has(seat.id)) return;
-      if (phase(room) !== "lobby") return;
+      if (!expiryAllowed(room)) return;
       room.seats.delete(seat.id);
       onChange(room);
-    }, ms);
+    }), ms);
   }
 
   function cancelDeletion(room) {
@@ -1807,11 +1935,11 @@ function createRegistry(deps) {
 
   function scheduleDeletion(room) {
     cancelDeletion(room);
-    room.deletionTimer = setT(() => {
+    room.deletionTimer = setT(guarded("room deletion", () => {
       room.deletionTimer = null;
       if (humans(room).some((s) => s.connected)) return;
       deleteRoom(room);
-    }, resumeTtlMs);
+    }), resumeTtlMs);
   }
 
   function deleteRoom(room) {
@@ -1880,7 +2008,7 @@ function createRegistry(deps) {
     seat.connected = false;
     seat.disconnectedAt = now();
     room.game.setConnected(seat.id, false);
-    if (phase(room) === "lobby") scheduleSeatExpiry(room, seat, resumeTtlMs);
+    if (expiryAllowed(room)) scheduleSeatExpiry(room, seat, resumeTtlMs);
     if (!humans(room).some((s) => s.connected)) scheduleDeletion(room);
     return true;
   }
@@ -1978,7 +2106,7 @@ git commit -m "feat: room registry with seats, resume tokens, expiry, deletion"
 
 **Interfaces:**
 - Consumes: `createGame` (Task 4), `createRegistry` (Task 6), `buildState` (Task 5).
-- Produces the wire protocol from spec section 4.5. WebSocket endpoint: `ws://host/ws?room=abcd`. Messages in: `join {name, resumeToken?}`, `resume {resumeToken}`, `add-bot`, `remove-bot {playerId}`, `start-game`, `bid {auction, amount, locked}`, `return-to-lobby`. Messages out: `state` (from `buildState`), `joined {playerId, resumeToken}`, `error {message, code?}`.
+- Produces the wire protocol from spec section 4.5. WebSocket endpoint: `ws://host/ws?room=abcd` (the room comes from the socket URL, never from a message). `/api/new-room` answers `{ ok: true, room }`. Human names equal to a bot name are refused. Messages in: `join {name, resumeToken?}`, `resume {resumeToken}`, `add-bot`, `remove-bot {playerId}`, `start-game`, `bid {auction, amount, locked}`, `return-to-lobby`. Messages out: `state` (from `buildState`), `joined {playerId, resumeToken}`, `error {message, code?}`.
 - Startup log line contains `running at` (the test waits for it).
 
 - [ ] **Step 1: Create the placeholder pages**
@@ -2035,7 +2163,9 @@ function uniqueRoom() {
 
 test.before(async () => {
   child = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
-    env: { ...process.env, PORT: String(PORT), RESUME_TTL_MS: String(TTL_MS), BID_MS: "60000", REVEAL_BIDS_MS: "50", REVEAL_CARD_MS: "50" },
+    // BID_MS 4000 keeps bot bids inside 1.5 to 2 s, so every wait below has
+    // room to spare, and a deadline passes quickly when a test needs one.
+    env: { ...process.env, PORT: String(PORT), RESUME_TTL_MS: String(TTL_MS), BID_MS: "4000", REVEAL_BIDS_MS: "50", REVEAL_CARD_MS: "50" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stderr.on("data", (b) => process.stderr.write(b));
@@ -2048,18 +2178,23 @@ test.before(async () => {
       }
     });
     child.on("error", reject);
+    child.on("exit", (code) => reject(new Error(`server exited early with code ${code}`)));
   });
 });
 
-test.after(() => {
-  if (child) child.kill();
+test.after(async () => {
+  if (!child) return;
+  await new Promise((resolve) => {
+    child.once("exit", resolve);
+    child.kill();
+  });
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function getJson(url) {
+function getJson(url, headers = {}) {
   return new Promise((resolve, reject) => {
-    http.get(BASE + url, (res) => {
+    http.get(BASE + url, { headers }, (res) => {
       let body = "";
       res.on("data", (c) => (body += c));
       res.on("end", () => resolve({ status: res.statusCode, body, headers: res.headers }));
@@ -2088,7 +2223,7 @@ function connect(room) {
       const found = [...messages.slice(from)].reverse().find(pred);
       if (found) return Promise.resolve(found);
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), 5000);
+        const timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), 8000);
         const check = (msg) => {
           if (!pred(msg)) {
             waiters.push(check);
@@ -2116,14 +2251,31 @@ async function join(room, name, token) {
   return c;
 }
 
-test("routes: shell, new-room, how-to-play, redirect, json 404", async () => {
+test("routes: shell, new-room, how-to-play, html redirect, json 404", async () => {
   assert.equal((await getJson("/")).status, 200);
   assert.equal((await getJson("/abcd")).status, 200);
   const nr = await getJson("/api/new-room");
   assert.equal(nr.status, 200);
   assert.match(JSON.parse(nr.body).room, /^[a-z]{4}$/);
   assert.equal((await getJson("/how-to-play")).status, 200);
-  assert.equal((await getJson("/api/nothing")).status, 404);
+  const page = await getJson("/no-such-page", { Accept: "text/html,application/xhtml+xml,*/*;q=0.8" });
+  assert.equal(page.status, 302);
+  assert.equal(page.headers.location, "/");
+  const asset = await getJson("/no-such.png", { Accept: "image/avif,image/webp,*/*" });
+  assert.equal(asset.status, 404);
+  assert.equal(JSON.parse(asset.body).error, "not_found");
+  const api = await getJson("/api/nothing", { Accept: "application/json" });
+  assert.equal(api.status, 404);
+});
+
+test("a human cannot take a bot's name", async () => {
+  const room = uniqueRoom();
+  const c = connect(room);
+  await c.open();
+  c.send({ type: "join", name: "Bot Ada" });
+  const err = await c.until((m) => m.type === "error", "reserved name");
+  assert.match(err.message, /reserved/i);
+  c.ws.close();
 });
 
 test("join seats a player, returns a token, and makes them host", async () => {
@@ -2190,7 +2342,7 @@ test("a seat that disconnects in the lobby expires after the TTL", async () => {
   a.ws.close();
 });
 
-test("a seat that disconnects mid-game is kept past the TTL", async () => {
+test("a seat that disconnects mid-game is kept past the TTL and across an auction boundary", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");
   const b = await join(room, "Ben");
@@ -2199,9 +2351,13 @@ test("a seat that disconnects mid-game is kept past the TTL", async () => {
   b.ws.close();
   await sleep(TTL_MS * 2);
   a.send({ type: "bid", auction: 1, amount: 5, locked: false });
-  const s = await a.until((m) => m.type === "state" && m.myBid && m.myBid.amount === 5, "state after bid");
-  assert.equal(s.players.length, 2);
-  assert.equal(s.players.find((p) => p.id === b.playerId).connected, false);
+  const mid = await a.until((m) => m.type === "state" && m.myBid && m.myBid.amount === 5, "state after bid");
+  assert.equal(mid.players.length, 2);
+  assert.equal(mid.players.find((p) => p.id === b.playerId).connected, false);
+  // The 4 s deadline passes with Ben away; auction 2 must still list him.
+  const next = await a.until((m) => m.type === "state" && m.phase === "bidding" && m.auctionIndex === 2, "auction 2");
+  assert.equal(next.players.length, 2);
+  assert.equal(next.history[0].bids[b.playerId], 0);
   a.ws.close();
 });
 
@@ -2213,7 +2369,7 @@ test("a room with no connected human for the TTL is deleted", async () => {
   await a.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
   a.ws.close();
   b.ws.close();
-  await sleep(TTL_MS * 2);
+  await sleep(TTL_MS * 3);
   const c = connect(room);
   await c.open();
   const s = await c.until((m) => m.type === "state", "fresh room state");
@@ -2277,6 +2433,7 @@ const { WebSocketServer } = require("ws");
 const { createGame } = require("./lib/game.js");
 const { createRegistry } = require("./lib/rooms.js");
 const { buildState } = require("./lib/snapshot.js");
+const { BOT_NAMES } = require("./lib/bots.js");
 
 function envInt(name, fallback) {
   const value = Number(process.env[name]);
@@ -2327,6 +2484,11 @@ function normalizeName(raw) {
   return String(raw ?? "").trim().replace(/\s+/g, " ").slice(0, 16);
 }
 
+function isReservedName(name) {
+  const lower = name.toLowerCase();
+  return BOT_NAMES.some((botName) => botName.toLowerCase() === lower);
+}
+
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
 
 const app = express();
@@ -2351,8 +2513,12 @@ app.get("/how-to-play", (_req, res) => {
 
 app.get(/^\/[a-z]{4}$/, (_req, res) => res.type("html").send(INDEX_HTML));
 
+// Unknown browser navigations go home; everything else (assets, API, fetches
+// that accept */*) gets the JSON 404 below. Checking the Accept header for
+// text/html directly avoids req.accepts() preferring "html" for */*.
 app.use((req, res, next) => {
-  if (req.method === "GET" && !req.path.startsWith("/api/") && req.accepts(["html", "json"]) === "html") {
+  const wantsHtml = /text\/html/i.test(req.headers.accept || "");
+  if (req.method === "GET" && wantsHtml && !req.path.startsWith("/api/")) {
     res.redirect(302, "/");
     return;
   }
@@ -2414,6 +2580,10 @@ wss.on("connection", (ws, req) => {
           send(ws, { type: "error", message: "Please enter a name." });
           return;
         }
+        if (isReservedName(name)) {
+          send(ws, { type: "error", message: "That name is reserved for bots." });
+          return;
+        }
         const result = registry.join(room, { name, ws });
         if (!result.ok) {
           const message = result.error === "game_in_progress" ? "Game in progress, try again after this game." : "That room is full.";
@@ -2432,7 +2602,7 @@ wss.on("connection", (ws, req) => {
       }
       case "remove-bot": {
         if (!requireHost()) return;
-        registry.removeBot(room, String(msg.playerId || ""));
+        if (!registry.removeBot(room, String(msg.playerId || ""))) send(ws, { type: "error", message: "Bots can only be removed in the lobby." });
         return;
       }
       case "start-game": {
@@ -2443,13 +2613,15 @@ wss.on("connection", (ws, req) => {
       }
       case "bid": {
         if (!seat) return;
+        // Stale or out-of-phase bids are ignored on purpose (spec 4.4): a
+        // debounced bid that lands after the deadline is not a user error.
         const result = room.game.bid(seat.id, { auction: Number(msg.auction), amount: Number(msg.amount), locked: Boolean(msg.locked) });
         if (!result.ok && result.error === "bad_amount") send(ws, { type: "error", message: "Bids are whole numbers from 0 to 100." });
         return;
       }
       case "return-to-lobby": {
         if (!requireHost()) return;
-        registry.returnToLobby(room);
+        if (!registry.returnToLobby(room)) send(ws, { type: "error", message: "Play again is only available on the results screen." });
         return;
       }
       default:
@@ -2680,8 +2852,10 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
   let takenOver = false;
   let deadlineAt = 0; // performance.now() at which the bidding window ends
   let draft = { auction: null, amount: 0, locked: false };
+  let resyncDraft = true; // after every (re)connect, trust the server's stored bid over the local draft
   let bidSendTimer = null;
   let toastTimer = null;
+  let lastRevealKey = ""; // which auction's card step has already been animated
 
   // ---------- small helpers ----------
   function show(viewId) {
@@ -2737,7 +2911,7 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
       try {
         const res = await fetch("/api/new-room", { cache: "no-store" });
         const data = await res.json();
-        if (data.ok) location.href = `/${data.room}`;
+        if (res.ok && data.room) location.href = `/${data.room}`;
         else toast("No room available right now, try again.");
       } catch {
         toast("Could not reach the server.");
@@ -2772,7 +2946,9 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
     socket = new WebSocket(`${proto}://${location.host}/ws?room=${roomCode}`);
     socket.addEventListener("open", () => {
       reconnectDelayMs = 1000;
+      resyncDraft = true;
       $("connBadge").hidden = true;
+      setBidControlsEnabled(true);
       const token = store.get(tokenKey());
       if (token) send({ type: "resume", resumeToken: token });
     });
@@ -2795,6 +2971,8 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
     });
     socket.addEventListener("close", (event) => {
       socket = null;
+      clearTimeout(bidSendTimer);
+      setBidControlsEnabled(false);
       if (event.code === SEAT_TAKEN_OVER_CODE) {
         takenOver = true;
         show("takenOverView");
@@ -2813,13 +2991,16 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
   function send(payload) {
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
   }
+  function setBidControlsEnabled(enabled) {
+    for (const id of ["bidInput", "bidRange", "lockBtn"]) $(id).disabled = !enabled;
+  }
 
   // ---------- rendering ----------
   function render() {
     if (!state) return;
     if (!state.you) {
       show("nameView");
-      const n = state.players.length;
+      const n = state.playerCount;
       $("roomPreview").textContent = state.phase === "lobby" ? (n ? `${n} in the lobby` : "Nobody here yet, you will be host") : "Game in progress";
       return;
     }
@@ -2897,12 +3078,20 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
     $("bidPanel").hidden = !bidding;
     $("revealPanel").hidden = bidding;
     $("timer").hidden = !bidding;
+    // Animate the card and the score deltas once per auction, not on every
+    // state message that happens to arrive during the card step.
+    let animate = false;
+    if (inCardStep) {
+      const key = `${state.matchId}:${state.auctionIndex}`;
+      animate = key !== lastRevealKey;
+      lastRevealKey = key;
+    }
     if (bidding) renderBidPanel();
-    else renderRevealPanel();
-    renderScoreboard();
+    else renderRevealPanel(animate);
+    renderScoreboard(animate);
   }
 
-  function renderScoreboard() {
+  function renderScoreboard(animate) {
     const last = state.history[state.history.length - 1];
     const showDeltas = state.phase === "reveal" && state.revealStep === "card" && last && last.deltas;
     const buyers = state.phase === "reveal" && last ? last.buyers : [];
@@ -2914,7 +3103,7 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
       if (state.phase === "bidding") row.append(el("span", "lock" + (p.locked ? " on" : ""), p.locked ? "locked" : "thinking"));
       if (showDeltas) {
         const d = last.deltas[p.id] || 0;
-        row.append(el("span", "delta " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero"), fmtDelta(d)));
+        row.append(el("span", "delta " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero") + (animate ? " pop" : ""), fmtDelta(d)));
       }
       row.append(el("span", "score", String(p.score)));
       board.append(row);
@@ -2922,7 +3111,8 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
   }
 
   function renderBidPanel() {
-    if (draft.auction !== state.auctionIndex) {
+    if (resyncDraft || draft.auction !== state.auctionIndex) {
+      resyncDraft = false;
       draft = {
         auction: state.auctionIndex,
         amount: state.myBid ? state.myBid.amount : 0,
@@ -2980,7 +3170,7 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
     scheduleBidSend(true);
   }
 
-  function renderRevealPanel() {
+  function renderRevealPanel(animate) {
     const last = state.history[state.history.length - 1];
     if (!last) return;
     const list = $("revealBids");
@@ -2998,7 +3188,7 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
     const outcome = $("revealOutcome");
     outcome.replaceChildren();
     if (state.revealStep === "card") {
-      outcome.append(cardEl(last.flipped, "big flip-in"));
+      outcome.append(cardEl(last.flipped, animate ? "big flip-in" : "big"));
       outcome.append(el("p", "outcome-text " + (last.matched ? "match" : "miss"), last.matched ? "Follows suit!" : "No match"));
     } else {
       outcome.append(el("p", "outcome-text pending", "Flipping the next card"));
@@ -3029,7 +3219,7 @@ There are no unit tests for the client (no DOM test harness in this repo, by des
       tr.append(el("td", "", String(h.index)));
       tr.append(el("td", `suit ${h.reference}`, SUIT_SYMBOLS[h.reference]));
       tr.append(el("td", "", state.players.map((p) => h.bids[p.id]).join(" / ")));
-      tr.append(el("td", "", h.void ? "void" : `${h.buyers.map(playerName).join(", ")} @ ${h.price}`));
+      tr.append(el("td", "", h.void ? `void @ ${h.price}` : `${h.buyers.map(playerName).join(", ")} @ ${h.price}`));
       tr.append(el("td", `suit ${h.flipped}`, `${SUIT_SYMBOLS[h.flipped]}${h.matched ? " match" : ""}`));
       tr.append(el("td", "", state.players.map((p) => fmtDelta((h.deltas && h.deltas[p.id]) || 0)).join(" / ")));
       tbody.append(tr);
@@ -3224,6 +3414,11 @@ button.primary.locked { background: var(--good); border-color: var(--good); colo
 .delta.pos, .score.pos { color: var(--good); }
 .delta.neg, .score.neg { color: var(--bad); }
 .delta.zero, .score.zero { color: var(--muted); }
+@keyframes popIn { from { transform: translateY(8px) scale(0.7); opacity: 0; } to { transform: none; opacity: 1; } }
+.delta.pop { animation: popIn 320ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .card.flip-in, .delta.pop { animation: none; }
+}
 
 .standing .rank { font-weight: 800; color: var(--gold); width: 2.2em; }
 .mini-hand { display: flex; gap: 2px; flex-wrap: wrap; }
@@ -3338,6 +3533,8 @@ services:
     name: follow-suit
     runtime: node
     plan: free
+    branch: main
+    autoDeploy: true
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /
@@ -3453,23 +3650,23 @@ Expected: log line `Follow Suit server running at http://localhost:3210`.
 2. Copy the room link. Open a second tab at that URL, enter `Ben`, join. Both tabs list Ann (host) and Ben; only Ann's tab shows Add bot and Start.
 3. In Ann's tab click Add bot twice. Both tabs show Bot Ada and Bot Bo with bot badges. Start becomes enabled. Click remove on Bot Bo and add it back.
 
-- [ ] **Step 3: One full game**
+- [ ] **Step 3: The first game, up to the middle**
 
 1. Click Start in Ann's tab. Both tabs show the game view: a large reference card, one card in the flip strip, a hand of 4 cards (4 players), a countdown from 20, and a scoreboard with the two bots showing "locked" within about six seconds.
-2. In Ann's tab drag the slider to 30 and click Lock. In Ben's tab type 10 and click Lock. Within a second both tabs show the reveal panel: four bids sorted with the buyer highlighted, then the flipped card with "Follows suit!" or "No match", then score deltas on the scoreboard, then auction 2.
+2. In Ann's tab drag the slider to 30 and click Lock. In Ben's tab type 10 and click Lock. Within a second both tabs show the reveal panel: four bids sorted with the buyer highlighted, then the flipped card animates in with "Follows suit!" or "No match", then score deltas pop onto the scoreboard, then auction 2.
 3. Let one auction expire without bidding in either tab. Confirm Ann's and Ben's bids show as 0 in the reveal, and that a bot bought.
-4. Resize Ann's tab to about 400px wide for a couple of auctions and confirm nothing overflows horizontally and the bid controls stay usable.
-5. Play through to results by locking bids each auction (or let the deadline run). The results view shows standings with ranks, every player's hand revealed as mini cards, and the auction table with one row per auction. Scores across all players sum to zero.
+4. Resize Ann's tab to about 400px wide for a couple of auctions and confirm nothing overflows horizontally and the bid controls stay usable. Resize back.
 
-- [ ] **Step 4: Resume, takeover, and refusal**
+- [ ] **Step 4: Resume, takeover, and refusal, still mid-game**
 
-1. During a game, reload Ben's tab. It returns straight to the game view with the same hand, score, and the full history, and the scoreboard shows Ben connected.
-2. Open Ben's room URL in a third tab. The third tab takes the seat; the previous Ben tab shows "Seat opened elsewhere".
-3. In a fourth tab open the room URL with a fresh browser profile or after clearing `localStorage` for the site, enter `Cat`, and join. A toast says "Game in progress, try again after this game."
+1. Reload Ben's tab during bidding. It returns straight to the game view with the same hand, score, and the full history, the scoreboard shows Ben connected, and the bid control shows whatever Ben had stored for this auction.
+2. Open Ben's room URL in a third tab. The third tab takes the seat; the previous Ben tab shows "Seat opened elsewhere". Close the old Ben tab and keep the new one.
+3. In a fourth tab open the room URL in a fresh browser profile or after clearing `localStorage` for the site, enter `Cat`, and join. A toast says "Game in progress, try again after this game." Close that tab.
 
-- [ ] **Step 5: Play again**
+- [ ] **Step 5: Finish the game, then Play again**
 
-In Ann's results view click Play again. Both tabs return to the lobby with all four seats kept and scores gone. Start again and confirm auction 1 of a fresh deck.
+1. Play through to results by locking bids each auction (or let the deadline run). The results view shows standings with ranks, every player's hand revealed as mini cards, and the auction table with one row per auction, void rows showing their price. Scores across all players sum to zero.
+2. In Ann's results view click Play again. Both tabs return to the lobby with all four seats kept and scores gone. Start again and confirm auction 1 of a fresh deck, then let it run for two auctions.
 
 - [ ] **Step 6: Record and fix**
 
