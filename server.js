@@ -113,7 +113,7 @@ wss.on("connection", (ws, req) => {
     ws.close(1008, "room_required");
     return;
   }
-  const room = registry.getOrCreate(code);
+  let room = registry.getOrCreate(code);
   room.visitors.add(ws);
   let seat = null;
   send(ws, buildState(room, null));
@@ -211,6 +211,15 @@ wss.on("connection", (ws, req) => {
       return;
     }
     if (!msg || typeof msg.type !== "string") return;
+    // The room this socket first attached to may have been deleted (no
+    // connected human for RESUME_TTL_MS) while this socket sat on the name
+    // screen; re-resolve to the live room so it isn't stranded talking to a
+    // detached object.
+    if (registry.get(room.code) !== room) {
+      room = registry.getOrCreate(room.code);
+      room.visitors.add(ws);
+      seat = null;
+    }
     // A displaced socket must not act on a seat it no longer owns.
     if (seat && seat.ws !== ws) return;
     try {

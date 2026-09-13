@@ -197,6 +197,28 @@ test("resume with the old socket left open takes the seat and closes the old one
   b.ws.close();
 });
 
+test("a displaced socket cannot inject a bid under the seat it lost", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const b = await join(room, "Ben");
+  a.send({ type: "start-game" });
+  await a.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
+  const a2 = connect(room);
+  await a2.open();
+  const beforeA2 = a2.messages.length;
+  // Fired back-to-back on two already-open sockets so the server is very
+  // likely to process the resume (which reassigns the seat to a2) before the
+  // bid arrives on the now-displaced socket a. This is a real race, not a
+  // guarantee: see the report for what was observed running this repeatedly.
+  a2.send({ type: "resume", resumeToken: a.token });
+  a.send({ type: "bid", auction: 1, amount: 99, locked: true });
+  const joined = await a2.until((m) => m.type === "joined", "resumed", beforeA2);
+  const s = await a2.until((m) => m.type === "state" && m.you === joined.playerId, "state after the race", beforeA2);
+  assert.notEqual(s.myBid && s.myBid.amount, 99);
+  a2.ws.close();
+  b.ws.close();
+});
+
 test("a seat that disconnects in the lobby expires after the TTL", async () => {
   const room = uniqueRoom();
   const a = await join(room, "Ann");
@@ -242,6 +264,28 @@ test("a room with no connected human for the TTL is deleted", async () => {
   assert.equal(s.phase, "lobby");
   assert.equal(s.playerCount, 0);
   c.ws.close();
+});
+
+test("a visitor stranded when the room is deleted still gets seated on a later join", async () => {
+  const room = uniqueRoom();
+  const v = connect(room);
+  await v.open();
+  await v.until((m) => m.type === "state", "visitor pre-state");
+  const a = await join(room, "Ann");
+  const b = await join(room, "Ben");
+  a.send({ type: "start-game" });
+  await a.until((m) => m.type === "state" && m.phase === "bidding", "bidding");
+  a.ws.close();
+  b.ws.close();
+  await sleep(TTL_MS * 3);
+  const before = v.messages.length;
+  v.send({ type: "join", name: "Cat" });
+  const joined = await v.until((m) => m.type === "joined", "Cat joined", before);
+  const s = await v.until((m) => m.type === "state" && m.you === joined.playerId, "Cat seated state", before);
+  assert.equal(s.phase, "lobby");
+  assert.equal(s.players.length, 1);
+  assert.equal(s.players[0].id, joined.playerId);
+  v.ws.close();
 });
 
 test("bidding round-trips: locked bids resolve, reveal, then auction 2", async () => {
