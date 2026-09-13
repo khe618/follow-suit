@@ -145,7 +145,8 @@ label { font-size: 0.85rem; color: var(--muted); }
 
 /* seats */
 .seat { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; width: 84px; text-align: center; z-index: 2; }
-.seat.empty { width: 48px; height: 48px; border-radius: 50%; border: 2px dashed rgba(255, 255, 255, 0.4); background: rgba(0, 0, 0, 0.25); color: rgba(255, 255, 255, 0.7); font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+.seat.empty { width: auto; height: 36px; padding: 0 14px; border-radius: 999px; border: 2px dashed rgba(255, 255, 255, 0.4); background: rgba(0, 0, 0, 0.25); color: rgba(255, 255, 255, 0.8); font: inherit; font-size: 0.85rem; font-weight: 700; white-space: nowrap; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.seat.empty:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.7); color: #fff; }
 .seat.empty:disabled { opacity: 0.3; cursor: default; }
 .avatar { position: relative; width: 44px; height: 44px; border-radius: 50%; background: var(--seat-color, var(--gold)); color: #101010; font-weight: 800; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(0, 0, 0, 0.35); }
 .seat.you .avatar { box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--gold-2); }
@@ -307,11 +308,6 @@ td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
 .mini-table .card.big { width: 54px; height: 76px; font-size: 2rem; }
 .mini-table .card.small { width: 34px; height: 48px; font-size: 1.2rem; }
 .tut-caption { text-align: center; font-size: 1.05rem; min-height: 2.8em; margin: 0; }
-.tut-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.tut-facts li { padding: 4px 10px; border-radius: 999px; background: var(--felt); border: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); }
-.tut-facts li b { color: var(--ink); font-weight: 700; }
-.tut-facts .hearts, .tut-facts .diamonds { color: #ff8a7a; }
-.tut-facts .spades, .tut-facts .clubs { color: var(--ink); }
 .keep-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .keep-layer .card { position: absolute; margin: 0; }
 .tut-controls { display: flex; justify-content: center; gap: 8px; }

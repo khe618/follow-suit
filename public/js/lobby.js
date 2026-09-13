@@ -6,8 +6,7 @@ export function emptySeat(position, disabled, send) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "seat empty";
-  btn.setAttribute("aria-label", "Add a bot");
-  btn.textContent = "+";
+  btn.textContent = "Add bot";
   btn.style.left = `${position.x}%`;
   btn.style.top = `${position.y}%`;
   btn.disabled = disabled;
@@ -24,16 +23,11 @@ export function renderLobbyCentre(els, state) {
 
 export function initLobbyControls(els, { send, roomCode, toast }) {
   els.dealBtn.addEventListener("click", () => send({ type: "start-game" }));
+  // Invite always copies the room link; the toast confirms it. If the
+  // clipboard is unavailable (insecure context, denied permission), the
+  // toast shows the link itself so it can still be copied by hand.
   els.inviteBtn.addEventListener("click", async () => {
     const url = `${location.origin}/${roomCode}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: "Follow Suit", url });
-        return;
-      } catch {
-        // user dismissed the sheet; fall through to the clipboard
-      }
-    }
     try {
       await navigator.clipboard.writeText(url);
       toast("Link copied");

@@ -2,7 +2,7 @@ import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
 import { holdSpot, setAside, besideSpot, COMPARE_MS, SLIDE_MS } from "./timelines.js";
 
-const { settle, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, HAND_SIZES } = window.GameCore;
+const { settle, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
@@ -145,20 +145,26 @@ async function showTag(ctx, m, i, value, gold) {
 }
 
 const POOL = SUITS.length * POOL_PER_SUIT;
-const handSizes = Object.keys(HAND_SIZES).map((n) => `<b>${HAND_SIZES[n]}</b> with ${n}`).join(", ");
-const deckSizes = Object.keys(HAND_SIZES).map((n) => `<b>${HAND_SIZES[n] * n}</b> with ${n}`).join(", ");
 const SLIDES = [
   {
-    caption: `Everyone is dealt a hand from a ${POOL}-card pool and sees only their own.`,
-    facts: [
-      `Pool: <b>${POOL_PER_SUIT}</b> of each suit ${SUITS.map((s) => `<span class="${s}">${SUIT_SYMBOLS[s]}</span>`).join("")}, ${POOL} cards`,
-      `Cards each: ${handSizes} players`,
-      "Goal: <b>most points</b> when the deck runs out"
-    ],
+    caption: "Each round you bet on whether the next card matches the suit on top. Win the bet and every other player pays you 100. Most chips when the deck runs out wins.",
+    async run(ctx, m) {
+      m.refSlot.replaceChildren(cardEl("spades", "big"));
+      await ctx.wait(500);
+      await turnReference(ctx, m, "spades", 550, () => {
+        m.flash.className = "rail-flash good";
+        ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+      });
+      await Promise.all([chips(ctx, m, 1, 0), chips(ctx, m, 2, 0)]);
+      await ctx.wait(1200);
+    }
+  },
+  {
+    caption: `Everyone is dealt a hand from a ${POOL}-card deck, ${POOL_PER_SUIT} of each suit. You see only your own.`,
     async run(ctx, m) {
       // dealTo's cards live in the anim run's sprite group, which is torn
       // down (and removed from the DOM) as soon as this timeline settles —
-      // success or not. Slides 2 and 4 already replace their sprites with
+      // success or not. Slides 3 and 5 already replace their sprites with
       // persistent nodes before they finish; this slide has no such
       // replacement step, so the dealt hand moves to the keep layer (above
       // the seats) instead of vanishing for the rest of the slide's hold.
@@ -173,12 +179,7 @@ const SLIDES = [
     }
   },
   {
-    caption: "The rest of the pool is set aside unseen. Only the hands are shuffled together: that is the deck.",
-    facts: [
-      `Deck: every hand together, ${deckSizes} players`,
-      "Set aside: the rest of the pool, never dealt or flipped",
-      "Will the next card match the suit on top?"
-    ],
+    caption: "The hands are shuffled together into a new deck. The cards nobody was dealt are set aside.",
     async run(ctx, m) {
       let inPool = POOL;
       m.deckCount.textContent = String(inPool);
@@ -305,7 +306,6 @@ export function createTutorial(dialog, { audio }) {
         <button type="button" class="chip-btn small" data-outcome="miss" aria-pressed="false">Miss</button>
       </div>
       <p class="tut-caption" aria-live="polite"></p>
-      <ul class="tut-facts" hidden></ul>
       <div class="tut-nav">
         <button type="button" class="chip-btn tut-back">Back</button>
         <div class="tut-dots"></div>
@@ -314,7 +314,6 @@ export function createTutorial(dialog, { audio }) {
     </div>`;
   const stage = dialog.querySelector(".tut-stage");
   const caption = dialog.querySelector(".tut-caption");
-  const facts = dialog.querySelector(".tut-facts");
   const controls = dialog.querySelector(".tut-controls");
   const dots = dialog.querySelector(".tut-dots");
   const back = dialog.querySelector(".tut-back");
@@ -333,7 +332,7 @@ export function createTutorial(dialog, { audio }) {
     dots.append(dot);
   }
 
-  // Slide 5: the mini table stays on screen and reflects the sliders live
+  // Last slide: the mini table stays on screen and reflects the sliders live
   // (buyer glow, bid tags, price badge, scores), with the calculator below.
   function renderCalculator(m) {
     const wrap = document.createElement("div");
@@ -396,8 +395,6 @@ export function createTutorial(dialog, { audio }) {
     if (anim) anim.cancelAll();
     stage.replaceChildren();
     caption.textContent = slide.caption;
-    facts.hidden = !slide.facts;
-    facts.innerHTML = (slide.facts || []).map((f) => `<li>${f}</li>`).join("");
     controls.hidden = !slide.controls;
     back.disabled = index === 0;
     next.textContent = index === SLIDES.length - 1 ? "Done" : "Next";
