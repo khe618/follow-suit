@@ -50,8 +50,22 @@
       };
       const ctx = {
         alive: () => generation === mine,
+        // A stale run's timeline can still run synchronous code up to its
+        // next checkpoint (the deferred microtask below means a run started
+        // synchronously right after this one tears it down before its body
+        // has executed at all). A handle tracked in that window is cancelled
+        // on the spot rather than pushed, since it will never be torn down
+        // by `teardown` otherwise.
         track(handle) {
-          if (generation === mine) entry.tracked.push(handle);
+          if (generation === mine) {
+            entry.tracked.push(handle);
+          } else {
+            try {
+              handle.cancel();
+            } catch (err) {
+              console.error("[sequencer] cancel failed:", err);
+            }
+          }
           return handle;
         },
         async wait(ms) {

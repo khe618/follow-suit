@@ -144,3 +144,20 @@ test("a newer run cancels the previous run's handles and cleanup first", async (
   assert.equal(await second, "done");
   assert.deepEqual(log, ["cancel:first", "cleanup-first", "cancel:second", "cleanup-second"]);
 });
+
+test("a handle tracked by a run superseded before its first checkpoint is cancelled on the spot", async () => {
+  const log = [];
+  const seq = createSequencer({ wait: () => Promise.resolve() });
+  const first = seq.run(async (ctx) => {
+    ctx.track(fakeHandle(log, "first"));
+    log.push("first-body");
+  });
+  const second = seq.run(async (ctx) => {
+    ctx.track(fakeHandle(log, "second"));
+    await ctx.wait(1);
+  });
+  assert.equal(await first, "cancelled");
+  assert.equal(await second, "done");
+  assert.deepEqual(log.slice(0, 2), ["cancel:first", "first-body"], "stale handle cancelled inside track, before the body continues");
+  assert.deepEqual(log.slice(2), ["cancel:second"], "the live run's handle is cancelled once at completion");
+});
