@@ -1,0 +1,237 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { createGame } = require("../lib/game.js");
+const { createClock } = require("./helpers/clock.js");
+
+const CONFIG = { bidMs: 20000, revealBidsMs: 2500, revealCardMs: 3000 };
+
+function setup({ seats, randomInt } = {}) {
+  const clock = createClock();
+  const changes = [];
+  const game = createGame({
+    now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
+    randomInt: randomInt || ((n) => n - 1), random: () => 0.5, config: CONFIG,
+    onChange: () => changes.push(game.phase + ":" + game.revealStep)
+  });
+  const defaultSeats = [
+    { id: "p1", name: "Ann", isBot: false, connected: true },
+    { id: "p2", name: "Ben", isBot: false, connected: true }
+  ];
+  game.start(seats || defaultSeats);
+  return { clock, game, changes };
+}
+
+test("start deals, flips one card and opens auction 1", () => {
+  const { game } = setup();
+  assert.equal(game.phase, "bidding");
+  assert.equal(game.matchId, 1);
+  assert.equal(game.flipIndex, 1);
+  assert.equal(game.deck.length, 24);
+  assert.equal(game.hiddenCount, 8);
+  assert.equal(game.players[0].hand.length, 8);
+  assert.equal(game.auction.index, 1);
+  assert.equal(game.cardsRemaining(), 23);
+  assert.ok(game.reference());
+  assert.equal(game.remainingMs(), 20000);
+});
+
+test("start rejects wrong phase and bad player counts", () => {
+  const { game } = setup();
+  assert.throws(() => game.start([]), /lobby/);
+  const g2 = createGame({ config: CONFIG });
+  assert.throws(() => g2.start([{ id: "a", name: "A" }]), RangeError);
+  g2.destroy();
+});
+
+test("missing bids resolve to 0 at the deadline", () => {
+  const { clock, game } = setup();
+  game.bid("p1", { auction: 1, amount: 30, locked: false });
+  clock.advance(20000);
+  assert.equal(game.phase, "reveal");
+  assert.equal(game.revealStep, "bids");
+  const entry = game.history[0];
+  assert.deepEqual(entry.bids, { p1: 30, p2: 0 });
+  assert.deepEqual(entry.buyers, ["p1"]);
+  assert.equal(entry.price, 30);
+  assert.equal(entry.flipped, null);
+});
+
+test("all locked resolves early and the stale deadline is harmless", () => {
+  const { clock, game } = setup();
+  game.bid("p1", { auction: 1, amount: 30, locked: true });
+  assert.equal(game.phase, "bidding");
+  game.bid("p2", { auction: 1, amount: 10, locked: true });
+  assert.equal(game.phase, "reveal");
+  assert.equal(game.history.length, 1);
+  clock.advance(2500);
+  assert.equal(game.revealStep, "card");
+  assert.ok(game.history[0].flipped);
+  clock.advance(3000);
+  assert.equal(game.phase, "bidding");
+  assert.equal(game.auction.index, 2);
+  // The original 20 s deadline would have fired by now. Auction 2 must be intact.
+  clock.advance(14500);
+  assert.equal(game.phase, "bidding");
+  assert.equal(game.auction.index, 2);
+  assert.equal(game.history.length, 1);
+});
+
+test("a lock and the deadline at the same instant settle exactly once, in either order", () => {
+  // Order 1: the lock lands just before the deadline fires.
+  const first = setup();
+  first.game.bid("p1", { auction: 1, amount: 30, locked: true });
+  first.clock.advance(19999);
+  first.game.bid("p2", { auction: 1, amount: 10, locked: true });
+  first.clock.advance(1);
+  assert.equal(first.game.history.length, 1);
+  assert.deepEqual(first.game.history[0].bids, { p1: 30, p2: 10 });
+  // Order 2: the deadline fires first. The fake clock runs timers due at the
+  // same time in arming order, and the game armed its deadline at start, so a
+  // bid scheduled for exactly 20000 runs after the deadline resolved.
+  const second = setup();
+  second.game.bid("p1", { auction: 1, amount: 30, locked: true });
+  const late = [];
+  second.clock.setTimeout(() => late.push(second.game.bid("p2", { auction: 1, amount: 10, locked: true })), 20000);
+  second.clock.advance(20000);
+  assert.equal(second.game.history.length, 1);
+  assert.deepEqual(second.game.history[0].bids, { p1: 30, p2: 0 });
+  assert.deepEqual(late, [{ ok: false, error: "not_bidding" }]);
+});
+
+test("settlement applies score deltas and the flipped card becomes the reference", () => {
+  const { clock, game } = setup();
+  const oldReference = game.reference();
+  game.bid("p1", { auction: 1, amount: 40, locked: true });
+  game.bid("p2", { auction: 1, amount: 10, locked: true });
+  clock.advance(2500);
+  const entry = game.history[0];
+  assert.equal(entry.reference, oldReference);
+  assert.equal(entry.flipped, game.deck[1]);
+  assert.equal(entry.matched, entry.flipped === oldReference);
+  const expected = entry.matched ? { p1: 60, p2: -60 } : { p1: -40, p2: 40 };
+  assert.deepEqual(entry.deltas, expected);
+  assert.equal(game.players[0].score, expected.p1);
+  assert.equal(game.players[1].score, expected.p2);
+  assert.equal(game.reference(), entry.flipped);
+});
+
+test("bid validation", () => {
+  const { game } = setup();
+  assert.deepEqual(game.bid("p1", { auction: 2, amount: 5, locked: false }), { ok: false, error: "stale_auction" });
+  assert.deepEqual(game.bid("zz", { auction: 1, amount: 5, locked: false }), { ok: false, error: "unknown_player" });
+  assert.deepEqual(game.bid("p1", { auction: 1, amount: 101, locked: false }), { ok: false, error: "bad_amount" });
+  assert.deepEqual(game.bid("p1", { auction: 1, amount: 2.5, locked: false }), { ok: false, error: "bad_amount" });
+  assert.deepEqual(game.bid("p1", { auction: 1, amount: -1, locked: false }), { ok: false, error: "bad_amount" });
+  assert.deepEqual(game.bid("p1", { auction: 1, amount: 0, locked: false }), { ok: true });
+});
+
+test("a disconnected player's stored bid survives and counts as locked", () => {
+  const { game } = setup();
+  game.bid("p2", { auction: 1, amount: 12, locked: false });
+  game.setConnected("p2", false);
+  assert.equal(game.phase, "bidding");
+  assert.deepEqual(game.bid("p2", { auction: 1, amount: 50, locked: true }), { ok: false, error: "disconnected" });
+  game.bid("p1", { auction: 1, amount: 30, locked: true });
+  assert.equal(game.phase, "reveal");
+  assert.deepEqual(game.history[0].bids, { p1: 30, p2: 12 });
+});
+
+test("disconnecting the last unlocked player resolves the auction", () => {
+  const { game } = setup();
+  game.bid("p1", { auction: 1, amount: 30, locked: true });
+  game.setConnected("p2", false);
+  assert.equal(game.phase, "reveal");
+});
+
+test("bots bid inside the window and are locked", () => {
+  const seats = [
+    { id: "p1", name: "Ann", isBot: false, connected: true },
+    { id: "b1", name: "Bot Ada", isBot: true, connected: true, profile: { key: "keen", shade: 1, sigma: 0 } }
+  ];
+  const { clock, game } = setup({ seats });
+  clock.advance(6000);
+  assert.ok(game.auction.bids.b1, "bot has bid");
+  assert.equal(game.auction.bids.b1.locked, true);
+  assert.ok(game.auction.bids.b1.amount >= 0 && game.auction.bids.b1.amount <= 100);
+  assert.equal(game.phase, "bidding");
+  game.bid("p1", { auction: 1, amount: 1, locked: true });
+  assert.equal(game.phase, "reveal");
+});
+
+test("a void auction records bids, no buyers, zero deltas, and still flips", () => {
+  const { clock, game } = setup();
+  game.bid("p1", { auction: 1, amount: 0, locked: true });
+  game.bid("p2", { auction: 1, amount: 0, locked: true });
+  clock.advance(2500);
+  const entry = game.history[0];
+  assert.equal(entry.void, true);
+  assert.deepEqual(entry.buyers, []);
+  assert.deepEqual(entry.deltas, { p1: 0, p2: 0 });
+  assert.ok(entry.flipped);
+  assert.equal(game.flipIndex, 2);
+});
+
+function playWholeGame(clock, game) {
+  while (game.phase !== "results") {
+    if (game.phase === "bidding") {
+      for (const p of game.players) if (!p.isBot) game.bid(p.id, { auction: game.auction.index, amount: p.id === "p1" ? 25 : 10, locked: true });
+    }
+    clock.advance(2500);
+    clock.advance(3000);
+  }
+}
+
+test("the last auction leads to results with hands revealed and no pending timers", () => {
+  const { clock, game } = setup();
+  playWholeGame(clock, game);
+  assert.equal(game.phase, "results");
+  assert.equal(game.history.length, 23);
+  assert.equal(game.cardsRemaining(), 0);
+  assert.equal(game.auction, null);
+  assert.equal(clock.pending(), 0);
+  assert.equal(game.players[0].hand.length, 8);
+  const sum = game.players.reduce((a, p) => a + p.score, 0);
+  assert.equal(sum, 0);
+});
+
+test("two consecutive full games in one instance share no state", () => {
+  const { clock, game } = setup();
+  playWholeGame(clock, game);
+  const firstHandSize = game.players[0].hand.length;
+  assert.equal(game.returnToLobby(), true);
+  assert.equal(game.phase, "lobby");
+  assert.deepEqual(game.history, []);
+  assert.deepEqual(game.players, []);
+  game.start([
+    { id: "p1", name: "Ann", isBot: false, connected: true },
+    { id: "p2", name: "Ben", isBot: false, connected: true },
+    { id: "p3", name: "Cat", isBot: false, connected: true }
+  ]);
+  assert.equal(game.matchId, 2);
+  assert.equal(game.phase, "bidding");
+  assert.equal(game.auction.index, 1);
+  assert.deepEqual(game.history, []);
+  assert.equal(game.deck.length, 24);
+  assert.equal(game.flipIndex, 1);
+  assert.equal(game.players.every((p) => p.score === 0), true);
+  assert.equal(clock.pending(), 1);
+  playWholeGame(clock, game);
+  assert.equal(game.phase, "results");
+  assert.equal(game.history.length, 23);
+  assert.equal(game.history.every((h) => h.index >= 1 && h.index <= 23 && h.deltas !== null), true);
+  assert.equal(game.players.length, 3);
+  assert.equal(game.players.reduce((a, p) => a + p.score, 0), 0);
+  assert.equal(clock.pending(), 0);
+  assert.notEqual(game.players[0].hand.length, firstHandSize, "three players deal a different hand size than two");
+});
+
+test("returnToLobby is refused outside results", () => {
+  const { game } = setup();
+  assert.equal(game.returnToLobby(), false);
+});
+
+test("destroy clears timers", () => {
+  const { clock, game } = setup();
+  game.destroy();
+  assert.equal(clock.pending(), 0);
+});
