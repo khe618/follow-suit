@@ -1,9 +1,7 @@
-import { cardEl } from "./table.js";
-
 const { SUIT_SYMBOLS } = window.GameCore;
 const { paymentStreams, displayScores, payoutBaseline } = window.Transitions;
 
-// Worst case (24 cards): 24*70 + 350 + 1200 + 800 + 800 + 250 + 400 + 250 = 5730 ms.
+// Worst case (24 cards): 24*70 + 350 + 1200 + (24*18 + 350) + 200 + 800 + 250 + 400 + 250 ≈ 5910 ms.
 // Transitions.DEAL_TIMELINE_MS (6000) must stay above this sum.
 const CARD_MS = 350;
 const DEAL_GAP_MS = 70;
@@ -243,7 +241,7 @@ export async function revealCardTimeline(ctx, t, state) {
     ctx.animate(badge, [{ transform: "translate(-50%, 0)", opacity: 1 }, { transform: "translate(-50%, -34px)", opacity: 0 }], { duration: 1200, easing: "ease-out", fill: "forwards" }).catch(() => {});
   }
   const mine = (last.deltas && last.deltas[state.you]) || 0;
-  t.announce(`You ${mine >= 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
+  t.announce(mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
   try {
     await ctx.wait(1200);
   } finally {

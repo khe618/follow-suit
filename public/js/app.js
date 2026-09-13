@@ -28,6 +28,7 @@ let seatedSinceOpen = false; // did a seated snapshot arrive on the current sock
 let seatWaitTimer = null;
 let startingRoom = false; // guards double clicks on the landing buttons
 let toastTimer = null;
+let wasDisconnected = false;
 
 function toast(message) {
   const node = $("toast");
@@ -158,14 +159,22 @@ function enterRoom(code) {
       if (myNet !== net) return;
       $("connPill").hidden = ok;
       myTable.setConnected(ok);
-      const live = $("live");
-      live.textContent = "";
-      live.textContent = ok ? "Connected" : "Connection lost, reconnecting";
+      if (!ok) {
+        wasDisconnected = true;
+        const live = $("live");
+        live.textContent = "";
+        live.textContent = "Connection lost, reconnecting";
+      } else if (wasDisconnected) {
+        wasDisconnected = false;
+        const live = $("live");
+        live.textContent = "";
+        live.textContent = "Connected";
+      }
     }
   });
   net = myNet;
   table = myTable;
-  showView(intent || myNet.hasToken() ? "tableView" : "joinView");
+  showView((intent || myNet.hasToken()) ? "tableView" : "joinView");
   myNet.connect();
 }
 

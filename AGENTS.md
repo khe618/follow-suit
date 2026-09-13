@@ -50,9 +50,11 @@ Environment variables (defaults in `server.js`): `PORT`, `DEAL_MS`, `BID_MS`,
 - `server.js`: env config, routes, WebSocket wiring, broadcast, `quick-play`.
 - `public/js/`: ES modules, no bundler. `app.js` routes in-document between the
   landing, join screen, and table; `net.js` owns the socket; `table.js` renders
-  the state layer and dispatches timelines; `timelines.js` and `anim.js` own
-  the sprite layer; `audio.js` synthesizes the sound effects; `tutorial.js` is
-  the how-to-play dialog. The design is in
+  the state layer and dispatches timelines; `lobby.js` holds the lobby-only
+  parts of the table (empty seats, Deal, Invite); `landing.js` is the landing
+  and join screens; `timelines.js` and `anim.js` own the sprite layer;
+  `audio.js` synthesizes the sound effects; `tutorial.js` is the how-to-play
+  dialog. The design is in
   `docs/superpowers/specs/2026-09-13-game-feel-design.md`.
 
 ## Testing

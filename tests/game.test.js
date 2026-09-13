@@ -293,3 +293,9 @@ test("destroy clears timers", () => {
   game.destroy();
   assert.equal(clock.pending(), 0);
 });
+
+test("game defaults match the server config defaults", () => {
+  const { DEFAULT_CONFIG } = require("../lib/game.js");
+  const { readConfig } = require("../lib/config.js");
+  assert.deepEqual(DEFAULT_CONFIG, readConfig({}).game);
+});

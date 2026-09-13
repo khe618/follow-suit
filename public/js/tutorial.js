@@ -251,7 +251,7 @@ export function createTutorial(dialog, { audio }) {
       <p class="tut-caption" aria-live="polite"></p>
       <div class="tut-nav">
         <button type="button" class="chip-btn tut-back">Back</button>
-        <div class="tut-dots" role="tablist"></div>
+        <div class="tut-dots"></div>
         <button type="button" class="chip-btn primary tut-next">Next</button>
       </div>
     </div>`;

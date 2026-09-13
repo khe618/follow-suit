@@ -26,7 +26,7 @@ let noiseBuffer = null;
 
 function ensure() {
   if (ctx) {
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
     return ctx;
   }
   const AC = window.AudioContext || window.webkitAudioContext;
