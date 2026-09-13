@@ -17,7 +17,7 @@ function makeRoom() {
 }
 
 // Exact allowlists. Anything not listed here is a leak, whatever it is called.
-const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
+const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "hiddenCount", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
 const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
 const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
 const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "price", "void", "flipped", "matched", "deltas"].sort();
@@ -33,6 +33,32 @@ function assertShape(state) {
   for (const h of state.history) assert.deepEqual(Object.keys(h).sort(), HISTORY_KEYS);
   assert.equal(JSON.stringify(state).includes("shade"), false, "bot profile leaked");
 }
+
+test("dealing snapshot has own hand, reference, null auction, timing, and no deck", () => {
+  const { room, game } = makeRoom();
+  game.start([...room.seats.values()]);
+  const s = buildState(room, "p1");
+  assert.equal(s.phase, "dealing");
+  assert.equal(s.revealStep, null);
+  assert.equal(s.auctionIndex, null);
+  assert.equal(s.hand.length, 6);
+  assert.ok(s.reference);
+  assert.equal(s.flipped.length, 1);
+  assert.equal(s.cardsRemaining, 23);
+  assert.equal(s.remainingMs, 7000);
+  assert.deepEqual(s.timing, { dealMs: 7000, bidMs: 20000, revealBidsMs: 3000, revealCardMs: 4000 });
+  assert.equal(s.myBid, null);
+  assert.deepEqual(s.history, []);
+  assert.equal(s.players.every((p) => !("hand" in p) && !("locked" in p)), true);
+  assertShape(s);
+  const text = JSON.stringify(s);
+  assert.equal(text.includes('"deck"'), false);
+  const other = buildState(room, "p2");
+  assert.notDeepEqual(other.hand, s.hand, "each recipient sees only their own hand");
+  const visitor = buildState(room, null);
+  assert.equal(visitor.phase, "dealing");
+  assert.equal(visitor.playerCount, 3);
+});
 
 test("lobby snapshot lists seats and hides nothing sensitive", () => {
   const { room } = makeRoom();
