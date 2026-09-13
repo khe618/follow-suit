@@ -149,12 +149,12 @@ Five views plus one dialog: **landing**, **join**, **table** (serves lobby, deal
 Played by `table.js` when the planner (section 3.10) returns kind `deal`. Card sprites are DOM elements animated with `transform` between measured positions (FLIP), so the same code works at any viewport size.
 
 1. **Deal** (`(P + 1) × n` cards, one every 70 ms, clockwise starting from the seat to the left of you): a card back flies from the deck to each seat in turn. Yours land in the hand fan and flip face up on arrival with a card-slide sound; other players' cards stack face down at their seat; the `n` hidden cards go to a face-down pile beside the deck. At most 24 cards (2.2 of the v1 spec), so at most about 1.7 s.
-2. **Peek** (1.5 s): nothing moves. You look at your hand. Bots' seats show a brief "looking" tilt.
+2. **Peek** (1.2 s): nothing moves. You look at your hand. Bots' seats show a brief "looking" tilt.
 3. **Gather** (0.8 s): every dealt card, yours included (they flip face down first) and the hidden pile, flies back into the deck. Shuffle sound. After this step the hidden pile no longer exists; only the `?` badge on the deck remains.
 4. **Shuffle** (0.8 s): the deck splits into two half-stacks that riffle back together twice. Riffle sound.
 5. **Flip** (0.5 s): the top card flips face up into the reference slot with a flip sound. The hand fan re-deals itself quietly from the bottom edge so your cards are visible again (they are yours to look at for the whole game).
 
-Total about 5.3 s, inside the 7 s `dealMs`. The planner (section 3.10) runs the timeline only when the snapshot is a genuine transition into `dealing` and `remainingMs` is at least the timeline's length; otherwise the final frame is drawn directly. When the `bidding` snapshot arrives, the timeline is cancelled if still running and the final frame is drawn.
+Total about 5.7 s in the worst case; the planner's threshold is 6 s, inside the 7 s `dealMs`. The planner (section 3.10) runs the timeline only when the snapshot is a genuine transition into `dealing` and `remainingMs` is at least the timeline's length; otherwise the final frame is drawn directly. When the `bidding` snapshot arrives, the timeline is cancelled if still running and the final frame is drawn.
 
 ### 3.5 The auction timelines
 
@@ -249,7 +249,7 @@ The server sends more snapshots than there are transitions: a message handler br
 | into `results` | `results` |
 | into `lobby` | `lobby` |
 
-`hydrate` is true for the first `state` message received after each socket open, whatever it contains. `net.js` sets it; `joined` is not used as a gate because a resume can broadcast a snapshot before `joined` is sent. Reload mid-deal, mid-reveal, or on results therefore always draws the final frame.
+`hydrate` is true for the first seated `state` received after a socket open on which the client did not itself send `join` or `quick-play`; `net.js` sets it. A fresh join or quick play therefore animates its first transition (quick play lands straight in `dealing` and must deal), while a resume after reload or reconnect draws the final frame. `joined` is not used as a gate because a resume can broadcast a snapshot before `joined` is sent.
 
 **Ownership.** The table DOM has two layers. The **state layer** (seats, deck, reference, hand, dock, badges) is rebuilt or patched by `render` on every snapshot from `state` alone. The **sprite layer** (flying cards, chips, riffle halves) is written only by timelines. Timelines position sprites by measuring state-layer elements, then remove their sprites and reveal the corresponding state-layer element when they finish or are cancelled.
 
