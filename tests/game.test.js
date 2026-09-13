@@ -22,7 +22,7 @@ function setup({ seats, randomInt } = {}) {
 }
 
 test("start deals, flips one card and opens auction 1", () => {
-  const { game } = setup();
+  const { game, changes } = setup();
   assert.equal(game.phase, "bidding");
   assert.equal(game.matchId, 1);
   assert.equal(game.flipIndex, 1);
@@ -33,6 +33,8 @@ test("start deals, flips one card and opens auction 1", () => {
   assert.equal(game.cardsRemaining(), 23);
   assert.ok(game.reference());
   assert.equal(game.remainingMs(), 20000);
+  // start() -> startAuction(1) fires onChange exactly once, after phase/revealStep land.
+  assert.deepEqual(changes, ["bidding:null"]);
 });
 
 test("start rejects wrong phase and bad player counts", () => {
@@ -57,7 +59,7 @@ test("missing bids resolve to 0 at the deadline", () => {
 });
 
 test("all locked resolves early and the stale deadline is harmless", () => {
-  const { clock, game } = setup();
+  const { clock, game, changes } = setup();
   game.bid("p1", { auction: 1, amount: 30, locked: true });
   assert.equal(game.phase, "bidding");
   game.bid("p2", { auction: 1, amount: 10, locked: true });
@@ -69,6 +71,12 @@ test("all locked resolves early and the stale deadline is harmless", () => {
   clock.advance(3000);
   assert.equal(game.phase, "bidding");
   assert.equal(game.auction.index, 2);
+  // changes[0] is the initial start(); then: p1's lock alone isn't allLocked
+  // yet, so bid() fires onChange itself ("bidding:null") before p2's lock
+  // makes allLocked() true and resolve() takes over ("reveal:bids"); then the
+  // reveal timers fire flipAndSettle ("reveal:card") and advance/startAuction(2)
+  // ("bidding:null").
+  assert.deepEqual(changes, ["bidding:null", "bidding:null", "reveal:bids", "reveal:card", "bidding:null"]);
   // The original 20 s deadline would have fired by now. Auction 2 must be intact.
   clock.advance(14500);
   assert.equal(game.phase, "bidding");
