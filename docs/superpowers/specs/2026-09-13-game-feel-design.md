@@ -35,6 +35,7 @@ lobby → dealing → bidding → reveal(bids) → reveal(card) → bidding → 
 - During `dealing`: no bot bids are scheduled; `bid` returns `not_bidding`; `setConnected` only records the flag. `returnToLobby` still requires `results`.
 - `remainingMs()` returns the time left in the current phase for both `dealing` and `bidding` (0 otherwise).
 - New config key `dealMs` (env `DEAL_MS`, default 7000). The reveal card step gets more room for the payment animation: `revealCardMs` default rises from 3000 to 4000. `revealBidsMs` stays 2500.
+- The deal timer is armed with the existing `armTimer`; with `auction === null` its captured auction index is 0, and the timer-identity and `matchId` guards protect it as they do every other phase timer. `destroy` and `resetMatch` clear it like any other.
 
 ### 2.2 No host
 
@@ -48,9 +49,9 @@ The "reserved for bots" name check in `server.js` goes away: names are labels, i
 
 ### 2.4 Quick play
 
-New client message `quick-play { name, resumeToken? }`. Semantics: exactly `join`, and then, if the join created a **new** seat and the room is in the lobby with that seat as the only one, the server adds bots until the room has 4 seats and starts the game. If the room already had other seats (someone opened the link first) it behaves as a plain `join` and the client lands in the lobby. Errors are the same as `join`'s. The `joined` reply is sent before the game starts so the client stores its token before the first `dealing` snapshot arrives.
+New client message `quick-play { name, resumeToken? }`. Semantics: exactly `join`, and then, if the join created a **new** seat and that seat is the only seat in the room (no other human, connected or not, and no bot), the server adds bots until the room has 4 seats and starts the game. If the room already had any other seat (someone opened the link first, or a disconnected lobby seat is still within its TTL) it behaves as a plain `join` and the client lands in the lobby. Errors are the same as `join`'s. The `joined` reply is sent before the game starts so the client stores its token before the first `dealing` snapshot arrives.
 
-Quick play always makes a 4-player table (you plus 3 bots): with 4 players everyone gets 4 cards and there are 19 auctions, the shortest of the standard games.
+In the normal case, a freshly reserved room, quick play therefore makes a 4-player table (you plus 3 bots): with 4 players everyone gets 4 cards and there are 19 auctions, the shortest of the standard games.
 
 ### 2.5 Routes
 
@@ -93,10 +94,11 @@ public/
   styles.css          theme, table, cards, chips, seats, dock, dialog, animations
   game-core.js        unchanged
   seat-layout.js      UMD, pure: seat positions on the oval for 2..6 players
+  transitions.js      UMD, pure: decides what a new snapshot means for the table
   js/
-    app.js            entry; routing between views; owns the socket and state
+    app.js            entry; in-document routing between views; owns the socket and state
     net.js            WebSocket connect / reconnect / send, resume, take-over
-    table.js          renders the table from state; asks anim.js to play transitions
+    table.js          renders the table from state; plays transitions via anim.js
     anim.js           promise-based sequencer, FLIP-style card and chip flights
     audio.js          Web Audio SFX and generative music, mute toggles
     tutorial.js       the how-to-play dialog: five slides and the calculator
@@ -104,7 +106,9 @@ public/
     landing.js        landing and join screens
 ```
 
-Modules communicate through `app.js`: it holds `state`, calls `table.render(state, prev)` on every snapshot, and exposes `send`. `table.js` owns all DOM under the table view and is the only module that decides what to animate, by diffing `prev` against `state` (phase, revealStep, matchId, auctionIndex, scores). `anim.js` and `audio.js` are pure services with no knowledge of game state.
+Modules communicate through `app.js`: it holds `state`, calls `table.render(state, meta)` on every snapshot, and exposes `send`. `table.js` owns all DOM under the table view. `transitions.js` is the only place that decides what to animate (section 3.10). `anim.js` and `audio.js` are pure services with no knowledge of game state.
+
+**Single document.** `/`, `/abcd`, and `/how-to-play` all serve the same shell, so moving from the landing into a room is an in-document route change (`history.pushState`), not a page load. `app.js` reads the route from `location.pathname` on load and again on `popstate`. This keeps the `AudioContext` created by the landing gesture alive into the game. A `popstate` that changes the room code reloads the page; the client never tries to swap sockets between rooms in place. The quick-play and play-with-friends intents from the landing are held in memory, never in the URL, so a reload of `/abcd` always lands on the join screen or, with a stored token, resumes.
 
 ### 3.2 Views
 
@@ -112,11 +116,11 @@ Five views plus one dialog: **landing**, **join**, **table** (serves lobby, deal
 
 **Landing (`/`).** Full-bleed felt. The word mark with the four suit glyphs, which flip over one at a time on load. A name field (remembered as today). Two large chip-styled buttons: **Quick play** and **Play with friends**. A small round **?** button opens the tutorial. A sound toggle sits in the corner. No tagline, no paragraph.
 
-- Quick play: saves the name, calls `/api/new-room`, navigates to `/abcd#quick`. On load the client sees the hash, removes it with `history.replaceState`, and once the socket opens sends `quick-play` with the stored name. It shows a "dealing you in" splash (deck shuffle animation, no text beyond the name of the table) until the first `dealing` snapshot arrives.
-- Play with friends: saves the name, calls `/api/new-room`, navigates to `/abcd#sit`. On load, with a stored name, the client sends `join` immediately and shows the lobby; without a stored name it shows the join screen.
+- Quick play: saves the name, unlocks audio, calls `/api/new-room`, pushes `/abcd` onto history, opens the socket with a `quick` intent, and once the socket opens sends `quick-play` with the name. It shows a "dealing you in" splash (deck shuffle animation, no text beyond the room code) until the first seated snapshot arrives.
+- Play with friends: saves the name, unlocks audio, calls `/api/new-room`, pushes `/abcd`, opens the socket with a `sit` intent, and sends `join` with the name once the socket opens. The lobby appears with the first seated snapshot.
 - If the name field is empty, both buttons focus it and shake it. No toast.
 
-**Join (`/abcd` from a shared link).** The table is drawn in the background, blurred, with as many seats occupied as `playerCount` says. In front: a name field (prefilled if remembered) and one button, **Sit down**. If the room is mid-game the button is replaced by a pulsing "table in play" pip and the view waits; when a lobby snapshot arrives the button appears. The first click on Sit down is also the audio unlock gesture.
+**Join (`/abcd` loaded directly, from a shared link or a reload without a token).** The table is drawn in the background, blurred, with as many seats occupied as `playerCount` says. In front: a name field (prefilled if remembered) and one button, **Sit down**. If the room is mid-game the button is replaced by a pulsing "table in play" pip and the view waits; when a lobby snapshot arrives the button appears. The first click on Sit down is also the audio unlock gesture for this document. A reload with a stored token skips this screen and resumes, as today.
 
 **Table, lobby phase.** The table itself is the lobby. Seats around the oval show each seated player (avatar disc with initial, name, bot glyph if a bot, dimmed if away). Empty seats are drawn as dashed chairs with a **+** glyph; tapping one sends `add-bot`. A bot seat shows a small **×** on hover or tap to send `remove-bot`. In the centre of the table: a **Deal** button (enabled at 2 or more seats; pulses gently when enabled) with a `2 / 6` counter under it, and an **Invite** button that copies the room link and, on devices with `navigator.share`, opens the share sheet. The top bar has the **?** button for the tutorial. There is no rules text, no host note, no hand-size sentence.
 
@@ -135,40 +139,40 @@ Five views plus one dialog: **landing**, **join**, **table** (serves lobby, deal
 - The table is an ellipse centred in the viewport, sized with `clamp()` so it fills a phone in portrait (taller than wide) and a laptop in landscape (wider than tall). Felt texture is a CSS radial gradient plus a subtle noise overlay; the rail is a darker wood-toned ring.
 - `seat-layout.js` exports `seatPositions(count)` returning `[{ x, y, angle }]` in percentages of the table box, index 0 always at bottom centre (the recipient), the rest evenly spaced clockwise around the remaining arc, with positions tuned so that 2 players are opposite each other and 6 are evenly spread. It is a pure module so it can be unit-tested in Node.
 - **Seat**: avatar disc (initial letter on a per-seat colour from a fixed 6-colour palette assigned by seat index), name below it (truncated with ellipsis at 10 characters), score chip to the side showing the number, status pip. Seats are absolutely positioned inside the table box.
-- **Centre**: a face-down deck stack whose visual thickness tracks `cardsRemaining` (up to 8 drawn layers), with the count on its top card. Beside it the reference card, large, face up. A small face-down mini-stack marked with the hidden-card count sits behind the deck. Under the table, a row of mini cards for every flipped card so far (scrolls horizontally, newest on the right) and four suit chips with counts.
+- **Centre**: a face-down deck stack whose visual thickness tracks `cardsRemaining` (up to 8 drawn layers), with the count on its top card. Beside it the reference card, large, face up. The hidden-card count is a small badge on the deck itself, a `?` glyph with the number, so nothing suggests those cards live anywhere but inside the deck. Under the table, a row of mini cards for every flipped card so far (scrolls horizontally, newest on the right) and four suit chips with counts.
 - **Your hand**: fanned at the bottom edge in front of your seat, cards overlapping, sorted by suit, face up. On phones the fan is tighter.
 - **Dock** (bidding only): a slider from 0 to 100 styled as a track of chips, the current bid as a big number in a ring that drains as the timer runs (the ring uses `timing.bidMs` and `remainingMs`, turns red under 5 s), and one **Lock** button. Locking turns the button into a check and the ring gold. Moving the slider after locking unlocks, as today. The number is also editable directly for keyboard users. The only words on the dock are "Lock" and, once locked, "Locked".
 - **Top bar**: room code as a small pill, `7 / 19` auction counter during play, sound and music toggles, **?** for the tutorial, and a **Leave** door glyph. Nothing else.
 
 ### 3.4 The deal timeline
 
-Played by `table.js` when a snapshot arrives with `phase: "dealing"` for a `matchId` it has not yet animated. Card sprites are DOM elements animated with `transform` between measured positions (FLIP), so the same code works at any viewport size.
+Played by `table.js` when the planner (section 3.10) returns kind `deal`. Card sprites are DOM elements animated with `transform` between measured positions (FLIP), so the same code works at any viewport size.
 
-1. **Deal** (`P × n + n` cards, one every 70 ms, clockwise starting from the seat to the left of you): a card back flies from the deck to each seat in turn. Yours land in the hand fan and flip face up on arrival with a card-slide sound; other players' cards stack face down at their seat; the `n` hidden cards go to the hidden mini-stack. At most 28 cards, so at most about 2 s.
+1. **Deal** (`(P + 1) × n` cards, one every 70 ms, clockwise starting from the seat to the left of you): a card back flies from the deck to each seat in turn. Yours land in the hand fan and flip face up on arrival with a card-slide sound; other players' cards stack face down at their seat; the `n` hidden cards go to a face-down pile beside the deck. At most 24 cards (2.2 of the v1 spec), so at most about 1.7 s.
 2. **Peek** (1.5 s): nothing moves. You look at your hand. Bots' seats show a brief "looking" tilt.
-3. **Gather** (0.8 s): every dealt card, yours included (they flip face down first), flies back to the deck. Shuffle sound.
+3. **Gather** (0.8 s): every dealt card, yours included (they flip face down first) and the hidden pile, flies back into the deck. Shuffle sound. After this step the hidden pile no longer exists; only the `?` badge on the deck remains.
 4. **Shuffle** (0.8 s): the deck splits into two half-stacks that riffle back together twice. Riffle sound.
 5. **Flip** (0.5 s): the top card flips face up into the reference slot with a flip sound. The hand fan re-deals itself quietly from the bottom edge so your cards are visible again (they are yours to look at for the whole game).
 
-Total about 5.6 s, inside the 7 s `dealMs`. If a snapshot arrives with `remainingMs` less than the timeline needs (a reload mid-deal), the timeline is skipped and the final frame is drawn directly. When the `bidding` snapshot arrives, the timeline is cancelled if still running and the final frame is drawn.
+Total about 5.3 s, inside the 7 s `dealMs`. The planner (section 3.10) runs the timeline only when the snapshot is a genuine transition into `dealing` and `remainingMs` is at least the timeline's length; otherwise the final frame is drawn directly. When the `bidding` snapshot arrives, the timeline is cancelled if still running and the final frame is drawn.
 
 ### 3.5 The auction timelines
 
-**Reveal bids** (on the first `reveal/bids` snapshot for an auction): each seat's bid tag flips up above the seat, staggered 120 ms apart starting from the lowest bid, each with a chip tap. The buyers' tags turn gold and their seats glow; a gold price badge with the number appears over the deck. A void auction shows a grey "no trade" badge instead. Highest bid gets a short rising sound.
+**Reveal bids** (on the transition into `reveal/bids` for an auction): each seat's bid tag flips up above the seat, staggered 120 ms apart starting from the lowest bid, each with a chip tap. The buyers' tags turn gold and their seats glow; a gold price badge with the number appears over the deck. A void auction shows a grey "no trade" badge instead. Highest bid gets a short rising sound.
 
-**Reveal card** (on the first `reveal/card` snapshot for an auction):
+**Reveal card** (on the transition into `reveal/card` for an auction):
 
 1. **Flip** (0.5 s): the top card flips off the deck into the reference slot. The old reference slides into the flipped row. Match: green flash on the rail and a two-note chime. Miss: red flash and a low thud.
-2. **Pay** (about 1.5 s): chip sprites fly between seats along an arc, six chips per payment stream, spaced 60 ms. On a match, each seller sends chips to each buyer. On a miss, each buyer sends chips to each seller. Each arriving chip clinks and ticks the receiving seat's score toward its new value; the score counter runs with an easing counter so it lands on the exact value as the last chip arrives. A delta badge (`+40` in green, `−20` in red) floats up from each seat.
+2. **Pay** (about 1.5 s): live play shows the **net** settlement, one chip stream per buyer–seller pair, never the gross "pay the price, then collect 100" two-step. On a match each seller sends `100 − price` to each buyer; on a miss each buyer sends `price` to each seller. A stream whose amount is 0 (price 100 on a match, price 0 on a miss) sends no chips. A void auction sends no chips. With tied buyers every buyer receives a stream from every seller, so the per-pair amounts sum to the deltas in `history`. A stream is six chip sprites along an arc, spaced 60 ms, each clinking on arrival and ticking the receiving seat's score toward its new value with an easing counter that lands on the exact `state` score as the last chip arrives. A delta badge (`+40` in green, `−20` in red, `0` in grey) floats up from every seat, streams or not.
 3. The buyer glow and bid tags fade out. Next `bidding` snapshot: the dock slides up, the ring starts full, a soft deal-in sound plays.
 
 If a snapshot for a later step arrives mid-animation, the running animation is cancelled and the final frame drawn; scores are always taken from `state`, never from the animation.
 
-**Results**: the overlay slides up after the last pay animation, or immediately on a reload. Winner's row: fanfare if you won, a softer resolve chord otherwise.
+**Results**: the overlay slides up after the last pay animation, or immediately on hydration. Winner's row: fanfare if you won, a softer resolve chord otherwise.
 
 ### 3.6 Sound and music
 
-`audio.js` builds one `AudioContext` on the first user gesture (landing buttons, Sit down, or any tap on the table). Two independent toggles, persisted in `localStorage` (`followsuit:sfx`, `followsuit:music`), both default on. When the tab is hidden, music pauses via `visibilitychange`.
+`audio.js` builds one `AudioContext` per document on the first user gesture (landing buttons, Sit down, or any tap on the table) and calls `resume()` on it from every later gesture in case the browser suspended it. Because room entry is an in-document route change (section 3.1), the context created on the landing survives into the game. After a reload, sound stays silent until the first gesture in the new document; that is browser policy and is accepted. Two independent toggles, persisted in `localStorage` (`followsuit:sfx`, `followsuit:music`), both default on. Music pauses when the tab is hidden (`visibilitychange`), when the taken-over view is shown, and when the client leaves the table view; it resumes on the next gesture at the table.
 
 Sound effects, all synthesized:
 
@@ -196,7 +200,7 @@ Music is generative, a lounge pad: a cycle of four chords (ii–V–I–vi in a 
 1. **Deal.** Cards deal to three seats; yours flip up. Caption: "Everyone gets a hand. You see only yours."
 2. **Shuffle back.** All hands and a small hidden stack fly into the deck, it riffles, the top card flips up. Caption: "The hands and some hidden cards go back in. Will the next card match this suit?"
 3. **Bid.** Three bid tags rise to 80, 50, 20; the 80 glows gold. Caption: "Everyone bids 0 to 100 in secret. Highest bid buys the bet from everyone else at that price."
-4. **Pay.** Chips fly 80 from the buyer to each of the two others; the card flips; a Match/Miss toggle replays the payout: on a match 100 comes back from each; on a miss nothing does. Caption: "Match: each other player pays the buyer 100. Miss: the buyer keeps nothing."
+4. **Pay.** This slide deliberately shows the gross two-step that live play compresses into one net stream: chips fly 80 from the buyer to each of the two others; the card flips; a Match/Miss toggle replays the payout: on a match 100 comes back from each; on a miss nothing does. The slide ends on the same net delta badges live play shows (`+40 / −20 / −20` or `−160 / +80 / +80`), so players can connect the two. Caption: "Match: each other player pays the buyer 100. Miss: the buyer keeps nothing."
 5. **Try it.** Three sliders labelled You, A, B, a Match/Miss toggle, and live score deltas beside each slider computed with `GameCore.settle`. Ties show all top bidders as buyers; an all-way tie shows "no trade". Caption: "Move the bids. Notice who wins the auction and who wins the money."
 
 There is no "why the game is hard" slide. The dialog closes with Escape, the × button, or a tap outside.
@@ -217,8 +221,36 @@ Every string the client shows during play, to keep the "less text" promise hones
 
 - `prefers-reduced-motion: reduce` replaces flights with 150 ms cross-fades and skips the shuffle; timelines still run so state changes are visible, just without travel.
 - All animation is `transform` and `opacity` only, so it stays smooth on phones.
-- Every control is a real `<button>` or `<input>`; the slider remains a native range input styled with CSS. Seats have `aria-label`s with name, score, and status so a screen reader can follow the table.
+- Every control is a real `<button>` or `<input>`; the slider remains a native range input styled with CSS. Glyph-only controls carry accessible names: empty seat "Add a bot", bot remove "Remove {name}", `?` "How to play", door "Leave table", sound "Sound effects on/off", music "Music on/off", invite "Copy invite link". Seats have `aria-label`s of the form "{name}, {score} points, {locked | thinking | away}{, bot}".
+- One visually hidden `aria-live="polite"` region announces, in one short sentence each: bids revealed with the buyer and price ("Maya buys at 62", "No trade"), the flipped card and outcome ("Hearts, match"), your own delta ("You plus 40"), ten seconds left in bidding, connection lost and restored, and the phase changes into dealing, results, and lobby. Nothing else is announced, so the region stays quiet enough to be useful.
+- Focus: opening the tutorial moves focus into the dialog and closing it restores focus to the opener; when bidding begins focus moves to the bid number input unless the user is already interacting with a control.
 - The table works at 360 px wide and at 1440 px wide with no horizontal scroll.
+
+### 3.10 Snapshot handling and animation ownership
+
+The server sends more snapshots than there are transitions: a message handler broadcasts once from `onChange` and once more after the handler returns, so a start delivers two identical `dealing` snapshots and a final lock two identical `reveal/bids` snapshots. The client must treat snapshots as idempotent state, not as events.
+
+`transitions.js` (pure, UMD, tested in Node) exports `plan(prev, next, meta)` where `meta` is `{ hydrate: boolean, reducedMotion: boolean }`. It returns a **transition key** `${matchId}:${phase}:${revealStep || ""}:${auctionIndex || 0}` and a **kind**:
+
+| Condition | Kind |
+| --- | --- |
+| `hydrate` is true, or `prev` is null | `hydrate`: draw the final frame of `next`, no timeline |
+| key unchanged | `update`: idempotent refresh (scores, lock pips, timer, connection flags); never touches the sprite layer |
+| into `dealing` with `remainingMs >= DEAL_TIMELINE_MS` | `deal` |
+| into `dealing` otherwise | `hydrate` |
+| into `bidding` | `bidding`: cancel any running timeline, draw final frame, dock in |
+| into `reveal/bids` | `revealBids` |
+| into `reveal/card` | `revealCard` |
+| into `results` | `results` |
+| into `lobby` | `lobby` |
+
+`hydrate` is true for the first `state` message received after each socket open, whatever it contains. `net.js` sets it; `joined` is not used as a gate because a resume can broadcast a snapshot before `joined` is sent. Reload mid-deal, mid-reveal, or on results therefore always draws the final frame.
+
+**Ownership.** The table DOM has two layers. The **state layer** (seats, deck, reference, hand, dock, badges) is rebuilt or patched by `render` on every snapshot from `state` alone. The **sprite layer** (flying cards, chips, riffle halves) is written only by timelines. Timelines position sprites by measuring state-layer elements, then remove their sprites and reveal the corresponding state-layer element when they finish or are cancelled.
+
+**Cancellation.** `anim.js` keeps a generation counter. Starting a timeline increments it and captures the value; every `await` inside a timeline is followed by a check that the captured generation is still current, and if not the timeline clears its sprites and returns without touching the state layer. Cancelling therefore cannot leave a stale continuation writing to the DOM. `table.dispose()` bumps the generation, clears the sprite layer, and stops the timer ring; `app.js` calls it on take-over, on Leave, on socket replacement, and before switching to a non-table view.
+
+Duplicate-snapshot rule, made explicit: a second snapshot with the same key while a timeline is running takes the `update` path, which does not restart, cancel, or draw over the running timeline.
 
 ## 4. Testing
 
@@ -227,9 +259,10 @@ Server, all with `npm test`:
 - `game`: `start` enters `dealing` with `remainingMs === dealMs`; bids during dealing return `not_bidding`; no bot timers are armed during dealing; advancing the fake clock by `dealMs` opens auction 1 with bots scheduled; a `return-to-lobby` during dealing is refused; a second `start` while dealing throws (phase is not lobby); the deal timer is cancelled by `destroy`.
 - `rooms`: `hostId` is gone; `join`, `addBot`, `removeBot`, `startGame`, `returnToLobby` have no host concept.
 - `bots`: names come from the pool, are unique within the taken list, use the injected `randomInt`, and `pickBotName` returns `null` only when every name is taken; existing bid tests unchanged.
-- `snapshot`: key list updated (`hostId` out, `timing` in); in `dealing` the recipient's own hand and the reference are present and the deck, other hands, and `auctionIndex` are not; secrecy assertions extended to the new phase.
-- `server` (real sockets): a second joiner can add a bot and start the game; a visitor cannot; `quick-play` from a fresh room yields a `joined` then a `dealing` state with four players, three of them bots; `quick-play` into a room that already has a seat behaves as a plain join; `/how-to-play` serves the app shell.
+- `snapshot`: key list updated (`hostId` out, `timing` in); in `dealing` the recipient's own hand and the reference are present, `auctionIndex` is `null`, and the deck and other hands are absent; secrecy assertions extended to the new phase.
+- `server` (real sockets): the spawned server gets `DEAL_MS=50` alongside the short bid and reveal timings so existing tests that wait for `bidding` keep their margin; a second joiner can add a bot and start the game; a visitor cannot; `quick-play` from a fresh room yields a `joined` then a `dealing` state with four players, three of them bots; `quick-play` into a room that already has a seat behaves as a plain join; `/how-to-play` serves the app shell. The 7 s production default is asserted in the config test, not by waiting for it.
 - `seat-layout`: for 2..6 players, index 0 is at bottom centre, positions are distinct, all within the box, and neighbours are at least a minimum angular distance apart.
+- `transitions`: fed snapshot sequences and asserted kind by kind: duplicate `dealing` snapshots yield `deal` then `update`; a `dealing` snapshot with short `remainingMs` yields `hydrate`; the first snapshot after a socket open yields `hydrate` even in `reveal/card`; `reveal/bids` twice yields `revealBids` then `update`; skipping straight from `bidding` to `reveal/card` yields `revealCard`; a new `matchId` in `dealing` yields `deal` again; results then lobby yields `results` then `lobby`. Generation cancellation in `anim.js` is tested with a fake sequencer: a cancelled timeline resolves without calling its DOM hooks after the cancel point.
 
 Client, manual in Chrome before calling it done, on a phone-width viewport and a laptop viewport:
 
@@ -251,3 +284,6 @@ Client, manual in Chrome before calling it done, on a phone-width viewport and a
 - The tutorial is a dialog inside the app rather than a page so it can reuse the live card, chip, and seat elements and stay in sync with the table's look.
 - History table kept on the results screen behind a disclosure: the number-heavy record is useful for people who want to study a game, but it should not be the first thing on screen.
 - ES modules without a bundler: the browser support floor for this app already assumes modern JavaScript, and splitting the client is the only way to keep the animation, audio, and rendering code reviewable.
+- Landing to room is an in-document route change, not a page load, so the audio context unlocked on the landing survives into the game. A reload still needs one gesture; that is browser policy.
+- Live play shows net settlement per buyer–seller pair; the tutorial shows the gross two-step once and ends on the same net badges. Net keeps the reveal under 4 s and matches the deltas in the history; gross is what teaches the rule.
+- Snapshots are idempotent state, and transitions are derived by a pure planner keyed on match, phase, step, and auction. Codex review found that the server's double broadcast per handler would otherwise replay or interrupt animations.
