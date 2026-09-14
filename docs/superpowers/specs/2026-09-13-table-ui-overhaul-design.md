@@ -334,6 +334,16 @@ governs the §8 bonus sweep, deck flare and banner.
 
 ## 10. Tutorial
 
+> **Amended 2026-09-14.** Slides 6 and 7 — the two interactive
+> calculator slides — were cut, leaving six animated slides. Their net
+> deltas were computed as `purchase + N x oneFlipPayout` with no
+> `RUNOUT_MULTIPLIER`, so every heart the player pictured landing in the
+> bonus round was worth half what the slide claimed; the "doubling is
+> deliberately excluded here" note below did not survive contact with
+> readers. The worth-of-a-suit lesson moves into slide 5's caption.
+> `renderCalculator`, the `instruction` slide field, and the `.calc*` /
+> `.tut-stepper` / `.tut-instruction` CSS are gone with them.
+
 Eight slides, ordered so the auction is understood before any modifier.
 
 1. **The goal.** "Bid for the suit on top. Own it, and every later card of that

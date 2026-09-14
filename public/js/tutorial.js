@@ -2,7 +2,7 @@ import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
 import { holdSpot, setAside, COMPARE_MS } from "./timelines.js";
 
-const { settlePurchase, settleFlip, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, CARD_PAYOUT, RUNOUT_MULTIPLIER } = window.GameCore;
+const { SUIT_SYMBOLS, SUITS, POOL_PER_SUIT } = window.GameCore;
 const { seatPositions, podFace } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
@@ -143,7 +143,7 @@ async function showTag(ctx, m, i, value, gold) {
 }
 
 // One stack of owned cards per suit, the same shape the live table builds.
-export function stakeStack(suit, count) {
+function stakeStack(suit, count) {
   const stack = document.createElement("div");
   stack.className = "stake-stack";
   stack.dataset.suit = suit;
@@ -294,7 +294,7 @@ const SLIDES = [
     }
   },
   {
-    caption: "You pay each player their own bid. Every later heart then pays you 10 from each of them. The dock stacks a chip for every 10 you bid.",
+    caption: "You pay each player their own bid. Every later heart then pays you 10 from each of them — so the more hearts still to come, the more the suit is worth.",
     async run(ctx, m) {
       const n = 2;
       m.refSlot.replaceChildren(cardEl("hearts", "big"));
@@ -336,16 +336,6 @@ const SLIDES = [
         for (const b of badges) b.remove();
       }
     }
-  },
-  {
-    caption: "Drag a bid and watch who wins the suit — and who wins the money.",
-    instruction: "Drag any bid.",
-    calculator: { sliders: true }
-  },
-  {
-    caption: "The more hearts still to come, the more the suit is worth. Bid above that and you have overpaid.",
-    instruction: "Set how many hearts are still to come.",
-    calculator: { stepper: true }
   },
   {
     caption: "The last five cards are the bonus round: no auction, and every payout doubles. Suits you already own keep paying — twice as much.",
@@ -391,97 +381,6 @@ export function createTutorial(dialog, { audio }) {
     dots.append(dot);
   }
 
-  // Last slide: the mini table stays on screen and reflects the sliders live
-  // (buyer glow, bid tags, winning-bid badge, stake chip, scores), with the
-  // calculator below. Net = purchase + N later hearts, N from the stepper.
-  function renderCalculator(m, opts) {
-    const wrap = document.createElement("div");
-    wrap.className = "calc";
-    m.refSlot.replaceChildren(cardEl("hearts", "big"));
-    const showSliders = Boolean(opts.sliders);
-    const rows = NAMES.map((name, i) => {
-      const row = document.createElement("div");
-      row.className = "calc-row";
-      const bid = [80, 50, 20][i];
-      row.innerHTML = showSliders
-        ? `<span class="calc-name">${name}</span><input type="range" min="0" max="100" value="${bid}" aria-label="${name} bid"><span class="calc-bid mono"></span><span class="calc-delta mono"></span>`
-        : `<span class="calc-name">${name}</span><span class="calc-fixed mono">bid ${bid}</span><span class="calc-bid mono"></span><span class="calc-delta mono"></span>`;
-      row.dataset.bid = String(bid);
-      wrap.append(row);
-      return row;
-    });
-    const stepper = document.createElement("label");
-    stepper.className = "tut-stepper";
-    stepper.innerHTML = `hearts still to come <button type="button" class="step-btn" data-step="-1" aria-label="One fewer heart">−</button><output>4</output><button type="button" class="step-btn" data-step="1" aria-label="One more heart">+</button>`;
-    const note = document.createElement("p");
-    note.className = "calc-note mono";
-    note.setAttribute("aria-live", "polite");
-    if (opts.stepper) wrap.append(stepper);
-    wrap.append(note);
-    let later = 4;
-    const update = () => {
-      const bids = {};
-      rows.forEach((row, i) => {
-        const input = row.querySelector("input");
-        bids[NAMES[i]] = Number(input ? input.value : row.dataset.bid);
-        row.querySelector(".calc-bid").textContent = String(bids[NAMES[i]]);
-      });
-      const r = settlePurchase(bids);
-      const stakes = r.void ? [] : [{ auction: 1, suit: "hearts", buyers: r.buyers, sellers: r.sellers }];
-      const flip = settleFlip(stakes, "hearts", NAMES);
-      rows.forEach((row, i) => {
-        const name = NAMES[i];
-        const d = r.deltas[name] + later * flip.deltas[name];
-        const cell = row.querySelector(".calc-delta");
-        cell.textContent = fmt(d);
-        cell.className = "calc-delta mono " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero");
-        const buyer = r.buyers.includes(name);
-        row.classList.toggle("buyer", buyer);
-        m.seatEls[i].classList.toggle("buyer", buyer);
-        const tag = m.tag(i);
-        tag.hidden = false;
-        tag.textContent = String(bids[name]);
-        m.stakes(i).replaceChildren();
-        if (buyer) m.stakes(i).append(stakeStack("hearts", 1));
-        m.score(i, d);
-      });
-      m.price.hidden = false;
-      m.price.textContent = r.void ? "no trade" : `${SUIT_SYMBOLS.hearts} ${r.topBid}`;
-      m.price.classList.toggle("void", r.void);
-      // A buyer pays every seller that seller's own bid, and then collects
-      // CARD_PAYOUT from each of them per later heart. Break-even is the
-      // cost divided by that per-card total - not by CARD_PAYOUT alone.
-      const cost = r.sellers.reduce((sum, name) => sum + bids[name], 0);
-      const perCard = CARD_PAYOUT * r.sellers.length;
-      if (r.void) {
-        note.textContent = "Everyone bid the same, so there is no trade.";
-      } else if (showSliders) {
-        const breakEven = perCard > 0 ? Math.ceil(cost / perCard) : 0;
-        // "You" takes the second person however many buyers there are.
-        const verb = r.buyers.length > 1 || r.buyers.includes("You") ? "buy" : "buys";
-        note.textContent = `${r.buyers.join(" & ")} ${verb} hearts for ${cost}. `
-          + `Each later heart pays ${perCard}, so ${breakEven} heart${breakEven === 1 ? "" : "s"} break${breakEven === 1 ? "s" : ""} even.`;
-      } else {
-        const worth = later * perCard;
-        note.textContent = `${later} heart${later === 1 ? "" : "s"} to come × ${perCard} = the suit is worth ${worth} to ${r.buyers.join(" & ")}, who paid ${cost}.`;
-      }
-    };
-    for (const row of rows) {
-      const input = row.querySelector("input");
-      if (input) input.addEventListener("input", update);
-    }
-    const out = stepper.querySelector("output");
-    for (const btn of stepper.querySelectorAll("button")) {
-      btn.addEventListener("click", () => {
-        later = Math.max(0, Math.min(9, later + Number(btn.dataset.step)));
-        out.value = String(later);
-        update();
-      });
-    }
-    update();
-    return wrap;
-  }
-
   function show(i) {
     index = Math.max(0, Math.min(SLIDES.length - 1, i));
     const slide = SLIDES[index];
@@ -493,16 +392,6 @@ export function createTutorial(dialog, { audio }) {
     [...dots.children].forEach((d, k) => d.setAttribute("aria-current", String(k === index)));
     const m = miniTable();
     stage.append(m.table);
-    if (slide.calculator) {
-      if (slide.instruction) {
-        const tip = document.createElement("p");
-        tip.className = "tut-instruction";
-        tip.textContent = slide.instruction;
-        stage.append(tip);
-      }
-      stage.append(renderCalculator(m, slide.calculator));
-      return;
-    }
     anim = createAnim(m.sprites);
     anim.run((ctx) => slide.run(ctx, m)).catch((err) => {
       console.error("[tutorial] slide failed:", err);
@@ -533,7 +422,6 @@ export function createTutorial(dialog, { audio }) {
     close();
   });
   dialog.addEventListener("keydown", (event) => {
-    if (event.target.tagName === "INPUT") return;
     if (event.key === "ArrowRight") show(index + 1);
     if (event.key === "ArrowLeft") show(index - 1);
   });
@@ -542,7 +430,7 @@ export function createTutorial(dialog, { audio }) {
     touchX = event.pointerType === "touch" ? event.clientX : null;
   });
   dialog.addEventListener("pointerup", (event) => {
-    if (touchX === null || event.target.tagName === "INPUT") return;
+    if (touchX === null) return;
     const dx = event.clientX - touchX;
     touchX = null;
     if (dx < -40) show(index + 1);
