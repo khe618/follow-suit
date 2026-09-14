@@ -13,7 +13,10 @@
   // A dealing snapshot with less time left than this is drawn as its final
   // frame instead. Keep in step with timelines.js.
   const DEAL_TIMELINE_MS = 8500;
-  const PAYOUT = 100;
+  // Worst case of the reveal-card timeline in timelines.js: turn, compare
+  // beat, slide, payout streams, badge pop/hold/fade, tag fade. Keep in step
+  // with timelines.js; a Node test checks it against the config default.
+  const CARD_TIMELINE_MS = 4800;
 
   function transitionKey(s) {
     let key = `${s.matchId}:${s.phase}:${s.revealStep || ""}:${s.auctionIndex || 0}`;
@@ -42,57 +45,36 @@
     }
   }
 
-  function sellersOf(entry, ids) {
-    return ids.filter((id) => !entry.buyers.includes(id));
-  }
-
-  // The server applies one net delta at the card step. Between the two legs
-  // the client shows the score after the purchase leg.
-  function displayScores(state) {
+  // Scores at the start of the leg the current reveal step animates: before
+  // the purchase chips at reveal/bids, before the payout chips at
+  // reveal/card. Derived from the snapshot alone, never from the DOM. The
+  // server has already applied each leg when its snapshot is built.
+  function legBaseline(state) {
     const out = {};
     for (const p of state.players) out[p.id] = p.score;
-    if (state.phase !== "reveal" || state.revealStep !== "bids") return out;
+    if (state.phase !== "reveal") return out;
     const last = state.history[state.history.length - 1];
-    if (!last || last.void || last.deltas) return out;
-    const ids = state.players.map((p) => p.id);
-    const sellers = sellersOf(last, ids);
-    for (const id of last.buyers) out[id] -= last.price * sellers.length;
-    for (const id of sellers) out[id] += last.price * last.buyers.length;
-    return out;
-  }
-
-  // Scores at the start of the card step, derived from the card snapshot
-  // itself: undo the net delta the server applied, then apply the purchase
-  // leg. The DOM is never the source of truth for a baseline, because the
-  // bids snapshot may have been skipped or its animation interrupted.
-  function payoutBaseline(state) {
-    if (state.phase !== "reveal" || state.revealStep !== "card") return displayScores(state);
-    const last = state.history[state.history.length - 1];
-    const out = {};
-    for (const p of state.players) out[p.id] = p.score - ((last && last.deltas && last.deltas[p.id]) || 0);
-    if (!last || last.void) return out;
-    const ids = state.players.map((p) => p.id);
-    const sellers = sellersOf(last, ids);
-    for (const id of last.buyers) out[id] -= last.price * sellers.length;
-    for (const id of sellers) out[id] += last.price * last.buyers.length;
-    return out;
-  }
-
-  // Chip streams for one leg of the gross settlement. Buyers pay `price` to
-  // every seller at the bids reveal; on a match every seller pays 100 to
-  // every buyer at the card reveal. Zero-amount streams are omitted.
-  function paymentStreams(entry, ids, step) {
-    if (entry.void) return [];
-    const sellers = sellersOf(entry, ids);
-    const out = [];
-    if (step === "bids") {
-      if (entry.price === 0) return out;
-      for (const b of entry.buyers) for (const s of sellers) out.push({ from: b, to: s, amount: entry.price });
-    } else if (entry.matched) {
-      for (const s of sellers) for (const b of entry.buyers) out.push({ from: s, to: b, amount: PAYOUT });
+    if (!last) return out;
+    if (state.revealStep === "bids") {
+      for (const id of Object.keys(out)) out[id] -= (last.purchase && last.purchase[id]) || 0;
+    } else if (state.revealStep === "card" && last.deltas) {
+      for (const id of Object.keys(out)) out[id] -= (last.deltas[id] || 0) - ((last.purchase && last.purchase[id]) || 0);
     }
     return out;
   }
 
-  return { DEAL_TIMELINE_MS, transitionKey, plan, displayScores, payoutBaseline, paymentStreams };
+  // Chip streams for one leg. At the bids reveal every buyer pays every
+  // seller that seller's bid; at the card reveal the server's netted payouts
+  // fly as they are. Zero-amount streams are omitted.
+  function paymentStreams(entry, step) {
+    if (step === "bids") {
+      if (entry.void) return [];
+      const out = [];
+      for (const b of entry.buyers) for (const s of entry.sellers) if (entry.bids[s] > 0) out.push({ from: b, to: s, amount: entry.bids[s] });
+      return out;
+    }
+    return entry.payouts ? entry.payouts.map((p) => ({ ...p })) : [];
+  }
+
+  return { DEAL_TIMELINE_MS, CARD_TIMELINE_MS, transitionKey, plan, legBaseline, paymentStreams };
 });

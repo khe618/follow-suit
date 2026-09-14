@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { plan, displayScores, payoutBaseline, paymentStreams, transitionKey, DEAL_TIMELINE_MS } = require("../public/transitions.js");
+const { plan, legBaseline, paymentStreams, transitionKey, DEAL_TIMELINE_MS, CARD_TIMELINE_MS } = require("../public/transitions.js");
+const { readConfig } = require("../lib/config.js");
 
 const players = [{ id: "a", score: 0 }, { id: "b", score: 0 }, { id: "c", score: 0 }];
 function snap(over) {
@@ -61,58 +62,60 @@ test("every phase transition maps to its kind, including skipped steps and a new
   assert.deepEqual(kinds(seq), ["lobby", "deal", "bidding", "revealCard", "bidding", "results", "lobby", "deal"]);
 });
 
-const entry = (over) => ({ index: 1, reference: "spades", bids: { a: 80, b: 50, c: 20 }, buyers: ["a"], price: 80, void: false, flipped: null, matched: null, deltas: null, ...over });
+const entry = (over) => ({
+  index: 1, reference: "hearts", bids: { a: 80, b: 50, c: 20 }, buyers: ["a"], sellers: ["b", "c"], topBid: 80, void: false,
+  purchase: { a: -70, b: 50, c: 20 }, flipped: null, hits: null, payouts: null, deltas: null, ...over
+});
+const withScores = (scores) => players.map((p) => ({ ...p, score: scores[p.id] }));
 
-test("displayScores applies the purchase leg only during reveal/bids", () => {
+test("legBaseline undoes the purchase at bids, the payout at card, nothing elsewhere", () => {
   const raw = { a: 10, b: 20, c: 30 };
-  const ps = players.map((p) => ({ ...p, score: raw[p.id] }));
-  assert.deepEqual(displayScores(snap({ players: ps, phase: "bidding" })), raw);
-  const bids = snap({ players: ps, phase: "reveal", revealStep: "bids", history: [entry()] });
-  assert.deepEqual(displayScores(bids), { a: 10 - 160, b: 20 + 80, c: 30 + 80 });
-  const tie = snap({
-    players: [{ id: "a", score: 0 }, { id: "b", score: 0 }, { id: "c", score: 0 }, { id: "d", score: 0 }],
-    phase: "reveal", revealStep: "bids",
-    history: [entry({ bids: { a: 60, b: 60, c: 30, d: 10 }, buyers: ["a", "b"], price: 60 })]
+  assert.deepEqual(legBaseline(snap({ players: withScores(raw), phase: "bidding" })), raw);
+  // Server scores after the purchase: 10-70, 20+50, 30+20.
+  const bids = snap({ players: withScores({ a: -60, b: 70, c: 50 }), phase: "reveal", revealStep: "bids", history: [entry()] });
+  assert.deepEqual(legBaseline(bids), raw);
+  // Card step after a heart: payout +20/-10/-10 on top of the purchase.
+  const card = snap({
+    players: withScores({ a: -40, b: 60, c: 40 }), phase: "reveal", revealStep: "card",
+    history: [entry({ flipped: "hearts", hits: 1, payouts: [{ from: "b", to: "a", amount: 10 }, { from: "c", to: "a", amount: 10 }], deltas: { a: -50, b: 40, c: 10 } })]
   });
-  assert.deepEqual(displayScores(tie), { a: -120, b: -120, c: 120, d: 120 });
-  const voided = snap({ players: ps, phase: "reveal", revealStep: "bids", history: [entry({ bids: { a: 0, b: 0, c: 0 }, buyers: [], price: 0, void: true })] });
-  assert.deepEqual(displayScores(voided), raw);
-  // After the card step the server has applied the net delta: purchase + payout.
-  const after = snap({ players: ps.map((p) => ({ ...p, score: raw[p.id] + { a: 40, b: -20, c: -20 }[p.id] })), phase: "reveal", revealStep: "card", history: [entry({ flipped: "spades", matched: true, deltas: { a: 40, b: -20, c: -20 } })] });
-  assert.deepEqual(displayScores(after), { a: 50, b: 0, c: 10 });
-});
-
-test("paymentStreams: purchase leg at bids, payout leg at card, nothing for void or zero", () => {
-  const ids = ["a", "b", "c"];
-  assert.deepEqual(paymentStreams(entry(), ids, "bids"), [{ from: "a", to: "b", amount: 80 }, { from: "a", to: "c", amount: 80 }]);
-  assert.deepEqual(paymentStreams(entry({ flipped: "spades", matched: true }), ids, "card"), [{ from: "b", to: "a", amount: 100 }, { from: "c", to: "a", amount: 100 }]);
-  assert.deepEqual(paymentStreams(entry({ flipped: "hearts", matched: false }), ids, "card"), []);
-  assert.deepEqual(paymentStreams(entry({ bids: { a: 0, b: 0, c: 0 }, buyers: [], price: 0, void: true }), ids, "bids"), []);
-  assert.deepEqual(paymentStreams(entry({ bids: { a: 5, b: 0, c: 0 }, buyers: ["a"], price: 0 }), ids, "bids"), [], "price 0 sends no chips");
-  const tie = entry({ bids: { a: 60, b: 60, c: 30 }, buyers: ["a", "b"], price: 60 });
-  assert.deepEqual(paymentStreams(tie, ids, "bids"), [{ from: "a", to: "c", amount: 60 }, { from: "b", to: "c", amount: 60 }]);
-  assert.deepEqual(paymentStreams({ ...tie, matched: true }, ids, "card"), [{ from: "c", to: "a", amount: 100 }, { from: "c", to: "b", amount: 100 }]);
-});
-
-test("payoutBaseline recovers the post-purchase scores from a card snapshot alone", () => {
-  // Raw scores before the auction were 10/20/30; the server has applied +40/-20/-20.
-  const ps = [{ id: "a", score: 50 }, { id: "b", score: 0 }, { id: "c", score: 10 }];
-  const card = snap({ players: ps, phase: "reveal", revealStep: "card", history: [entry({ flipped: "spades", matched: true, deltas: { a: 40, b: -20, c: -20 } })] });
-  assert.deepEqual(payoutBaseline(card), { a: 10 - 160, b: 20 + 80, c: 30 + 80 });
-  // Adding the payout leg lands exactly on the server scores.
-  const streams = paymentStreams(card.history[0], ["a", "b", "c"], "card");
-  const landed = payoutBaseline(card);
-  for (const s of streams) {
+  assert.deepEqual(legBaseline(card), { a: -60, b: 70, c: 50 });
+  // Adding the payout streams lands exactly on the server scores.
+  const landed = legBaseline(card);
+  for (const s of paymentStreams(card.history[0], "card")) {
     landed[s.from] -= s.amount;
     landed[s.to] += s.amount;
   }
-  assert.deepEqual(landed, { a: 50, b: 0, c: 10 });
-  // A miss: no payout leg, so the baseline already equals the server scores.
-  const miss = snap({ players: [{ id: "a", score: -150 }, { id: "b", score: 100 }, { id: "c", score: 110 }], phase: "reveal", revealStep: "card", history: [entry({ flipped: "hearts", matched: false, deltas: { a: -160, b: 80, c: 80 } })] });
-  assert.deepEqual(payoutBaseline(miss), { a: -150, b: 100, c: 110 });
-  // Void: nothing moved.
-  const voided = snap({ players: ps, phase: "reveal", revealStep: "card", history: [entry({ bids: { a: 0, b: 0, c: 0 }, buyers: [], price: 0, void: true, flipped: "spades", matched: true, deltas: { a: 0, b: 0, c: 0 } })] });
-  assert.deepEqual(payoutBaseline(voided), { a: 50, b: 0, c: 10 });
-  // Outside reveal/card it is just displayScores.
-  assert.deepEqual(payoutBaseline(snap({ players: ps })), { a: 50, b: 0, c: 10 });
+  assert.deepEqual(landed, { a: -40, b: 60, c: 40 });
+  // Void at bids: identity. Void at card with an older stake paying: undone.
+  const voidEntry = entry({ bids: { a: 0, b: 0, c: 0 }, buyers: [], sellers: [], topBid: 0, void: true, purchase: { a: 0, b: 0, c: 0 } });
+  assert.deepEqual(legBaseline(snap({ players: withScores(raw), phase: "reveal", revealStep: "bids", history: [voidEntry] })), raw);
+  const voidCard = snap({
+    players: withScores({ a: 30, b: 10, c: 20 }), phase: "reveal", revealStep: "card",
+    history: [{ ...voidEntry, flipped: "hearts", hits: 1, payouts: [{ from: "b", to: "a", amount: 10 }, { from: "c", to: "a", amount: 10 }], deltas: { a: 20, b: -10, c: -10 } }]
+  });
+  assert.deepEqual(legBaseline(voidCard), raw);
+  // Results and lobby: identity, even with history present.
+  assert.deepEqual(legBaseline(snap({ players: withScores(raw), phase: "results", history: [entry()] })), raw);
+});
+
+test("paymentStreams: sellers' bids at the purchase, netted payouts at the card", () => {
+  assert.deepEqual(paymentStreams(entry(), "bids"), [{ from: "a", to: "b", amount: 50 }, { from: "a", to: "c", amount: 20 }]);
+  const tie = entry({ bids: { a: 60, b: 60, c: 30, d: 10 }, buyers: ["a", "b"], sellers: ["c", "d"], topBid: 60, purchase: { a: -40, b: -40, c: 60, d: 20 } });
+  assert.deepEqual(paymentStreams(tie, "bids"), [
+    { from: "a", to: "c", amount: 30 }, { from: "a", to: "d", amount: 10 },
+    { from: "b", to: "c", amount: 30 }, { from: "b", to: "d", amount: 10 }
+  ]);
+  assert.deepEqual(paymentStreams(entry({ bids: { a: 5, b: 0, c: 0 }, topBid: 5, purchase: { a: 0, b: 0, c: 0 } }), "bids"), [], "zero bids send no chips");
+  assert.deepEqual(paymentStreams(entry({ bids: { a: 0, b: 0, c: 0 }, buyers: [], sellers: [], topBid: 0, void: true }), "bids"), []);
+  const payouts = [{ from: "b", to: "a", amount: 10 }, { from: "c", to: "a", amount: 10 }];
+  const card = entry({ flipped: "hearts", hits: 1, payouts, deltas: { a: -50, b: 40, c: 10 } });
+  assert.deepEqual(paymentStreams(card, "card"), payouts);
+  assert.notEqual(paymentStreams(card, "card")[0], payouts[0], "streams are copies");
+  assert.deepEqual(paymentStreams(entry({ flipped: "clubs", hits: 0, payouts: [], deltas: { a: -70, b: 50, c: 20 } }), "card"), []);
+  assert.deepEqual(paymentStreams(entry(), "card"), [], "before the flip there are no payouts");
+});
+
+test("the reveal-card timeline fits inside the configured step", () => {
+  assert.ok(CARD_TIMELINE_MS <= readConfig({}).game.revealCardMs, `${CARD_TIMELINE_MS} > revealCardMs`);
 });
