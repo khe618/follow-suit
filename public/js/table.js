@@ -24,7 +24,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     logSheet: $("logSheet"), logBtn: $("logBtn"), logCloseBtn: $("logCloseBtn"),
     logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
-    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidStack: $("bidStack"),
+    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
     recap: $("recap"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble"),
     bonusBanner: $("bonusBanner"), bonusNote: $("bonusNote")
@@ -540,7 +540,6 @@ export function createTable({ send, roomCode, toast, audio }) {
     measureChrome();
     if (!bidding) {
       stopRing();
-      renderBidStack();
       return;
     }
     if (resyncDraft || draft.auction !== state.auctionIndex) {
@@ -562,28 +561,12 @@ export function createTable({ send, roomCode, toast, audio }) {
     deadlineAt = performance.now() + state.remainingMs;
     paintLock();
     startRing();
-    renderBidStack();
   }
 
   function paintLock() {
     els.lockBtn.textContent = draft.locked ? "Bid placed" : "Bid";
     els.lockBtn.classList.toggle("locked", draft.locked);
     els.ringArc.classList.toggle("locked", draft.locked);
-  }
-
-  // The dock stacks a chip for every 10 you bid, so the number has a size
-  // you can see. It lives in the dock (not on your seat, where it used to
-  // cover your own avatar); every non-bidding phase clears it.
-  function renderBidStack() {
-    els.bidStack.replaceChildren();
-    if (!state || state.phase !== "bidding") return;
-    const count = Math.ceil(draft.amount / 10);
-    for (let i = 0; i < count; i++) {
-      const chip = document.createElement("div");
-      chip.className = "chip-sprite";
-      chip.style.transform = `translateY(${-i * 3}px)`;
-      els.bidStack.append(chip);
-    }
   }
 
   function tickRing() {
@@ -629,7 +612,6 @@ export function createTable({ send, roomCode, toast, audio }) {
     if (source !== els.bidRange) els.bidRange.value = n;
     if (source !== els.bidInput) els.bidInput.value = n;
     paintLock();
-    renderBidStack();
     scheduleBidSend(false);
   }
   function scheduleBidSend(immediate) {

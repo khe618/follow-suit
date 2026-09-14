@@ -313,8 +313,6 @@ label { font-size: 0.85rem; color: var(--muted); }
 .ring-wrap input { position: absolute; inset: 16px; width: auto; border-radius: 50%; text-align: center; font-size: 1.6rem; font-weight: 800; padding: 0; background: var(--felt); border: none; font-family: ui-monospace, Menlo, Consolas, monospace; -moz-appearance: textfield; }
 .ring-wrap input::-webkit-outer-spin-button, .ring-wrap input::-webkit-inner-spin-button { -webkit-appearance: none; }
 /* The dock stacks a chip for every 10 bid, so the number has a size. */
-.bid-stack { grid-column: 2 / -1; display: flex; align-items: flex-end; gap: 3px; min-height: 16px; }
-.bid-stack .chip-sprite { width: 14px; height: 14px; border-width: 2px; flex: none; }
 .bid-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .bid-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--gold); height: 28px; }
 .step-btn {

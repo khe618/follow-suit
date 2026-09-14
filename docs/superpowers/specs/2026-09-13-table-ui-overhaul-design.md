@@ -136,6 +136,14 @@ contract.
 
 ### 3.4 The bid chip stack moves to the dock
 
+> **Amended 2026-09-14.** The chip stack is now **removed entirely**.
+> Moving it off the avatar fixed the occlusion, but the dock already
+> states the bid three ways — the number in the ring, the slider
+> position, and the +/-1 steppers — so a fourth reading of the same
+> value only added a row to the dock. `#bidStack`, `renderBidStack`
+> and the `.bid-stack` CSS are gone; the tutorial line that described
+> it went with the calculator slides (section 10).
+
 `renderBidStack` (`table.js:442`) draws poker chips over *your own avatar* —
 which is why the avatar is invisible in the measured screenshot — and the
 tutorial calls them "the dock reads your bid back as cards". They are chips,
