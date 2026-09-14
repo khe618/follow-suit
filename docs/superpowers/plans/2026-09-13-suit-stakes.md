@@ -14,8 +14,9 @@
 
 - `CARD_PAYOUT = 10`; `MAX_BID = 100`; bids are integers `0..100`, a price per counterparty.
 - All-way tie is **void**: empty `buyers` and `sellers`, all-zero purchase, no stake; the flip still pays older stakes.
-- History entry shape, exactly: `{ index, reference, bids, buyers, sellers, topBid, void, purchase, flipped, hits, payouts, deltas }`; `flipped`, `hits`, `payouts`, `deltas` are `null` until the card step. No `price`, no `matched`.
+- History entry shape, exactly: `{ index, reference, bids, buyers, sellers, topBid, void, runout, purchase, flipped, hits, payouts, deltas }`; `flipped`, `hits`, `payouts`, `deltas` are `null` until the card step. No `price`, no `matched`.
 - A stake is `{ auction, suit, buyers, sellers }`. `stakes` is public in every seated snapshot, `[]` in the lobby.
+- Runout (spec 2.6, added 2026-09-13 while Tasks 1–5 were in flight): `RUNOUT_CARDS = 5`, `RUNOUT_MULTIPLIER = 2`; the last five cards are never auctioned, the last four are flipped in runout steps with no bidding, and every stake a runout card hits pays 20 per seller. History entries carry `runout` (13 keys: `runout` sits after `void`). `cardValue(cardsRemaining) = 10 · (cardsRemaining + min(5, cardsRemaining)) / cardsRemaining` prices a card; `priorValue(['hearts'], 19) = 55`. Task 11 implements the server side; Tasks 7, 8, 9, 10 carry the client and test amendments marked **Runout**.
 - `revealCardMs` default is `6000`; `revealBidsMs` stays `4500`.
 - The server never serves `lib/fair-value.js` or `lib/bots.js`.
 - Repo conventions: `"use strict"` CommonJS under `lib/` and `tests/`; UMD wrappers in `public/*.js`; ES modules in `public/js/`; `server.js` reads `public/index.html` once at startup, so restart after editing it.
@@ -828,6 +829,255 @@ git commit -m "feat: stakes and the new history shape in the snapshot"
 
 ---
 
+### Task 11: Runout rules on the server (executed between Tasks 5 and 6; numbered 11 to avoid renumbering)
+
+**Files:**
+- Modify: `public/game-core.js` (constants, `settleFlip` signature, `priorValue`, exports)
+- Modify: `lib/fair-value.js` (`fairValue` and its import)
+- Modify: `lib/game.js` (import, `resolve` entry, `flipAndPay`, `advance`, new `runoutStep`)
+- Modify: `lib/snapshot.js` (`cloneEntry`)
+- Test: `tests/game-core.test.js`, `tests/fair-value.test.js`, `tests/game.test.js`, `tests/snapshot.test.js`
+
+**Interfaces:**
+- Consumes: Tasks 1, 2, 4, 5.
+- Produces: `RUNOUT_CARDS = 5`, `RUNOUT_MULTIPLIER = 2`, `isRunoutCard(cardNumber, deckSize)`, `cardValue(cardsRemaining)` on `GameCore`; `settleFlip(stakes, suit, playerIds, perCard = CARD_PAYOUT)`; history entries gain `runout` (13 keys, `runout` after `void`); runout steps in `lib/game.js` with `game.auction = { index, runout: true, deadlineAt: 0, bids: {} }`. Spec section 2.6 is the authority.
+
+- [ ] **Step 1: game-core tests**
+
+In `tests/game-core.test.js` add `RUNOUT_CARDS, RUNOUT_MULTIPLIER, isRunoutCard, cardValue` to the destructure on line 5. Change the `priorValue` test's first two assertions to:
+
+```js
+  // Auction 1 of a 4-player game: 19 cards remain, the last 5 of them pay double, one of the suit is out of 39 unseen pool cards.
+  assert.equal(priorValue(["hearts"], 19), 55);
+  assert.equal(priorValue(["hearts", "hearts", "hearts"], 17), Math.round(10 * 22 * 7 / 37));
+```
+
+Add after it:
+
+```js
+test("runout: the last five cards pay double and a card's value scales with the doubled tail", () => {
+  assert.equal(RUNOUT_CARDS, 5);
+  assert.equal(RUNOUT_MULTIPLIER, 2);
+  assert.equal(isRunoutCard(15, 20), false);
+  assert.equal(isRunoutCard(16, 20), true);
+  assert.equal(isRunoutCard(20, 20), true);
+  assert.equal(isRunoutCard(16, 21), false);
+  assert.equal(isRunoutCard(17, 21), true);
+  assert.ok(Math.abs(cardValue(19) - 10 * 24 / 19) < 1e-12);
+  assert.ok(Math.abs(cardValue(20) - 12.5) < 1e-12);
+  assert.equal(cardValue(5), 20);
+  assert.equal(cardValue(1), 20);
+  assert.equal(cardValue(0), 0);
+});
+
+test("settleFlip takes the per-card amount, so a runout card pays double", () => {
+  const stakes = [{ auction: 1, suit: "hearts", buyers: ["a"], sellers: ["b", "c"] }];
+  assert.deepEqual(settleFlip(stakes, "hearts", ["a", "b", "c"], 20), { hits: 1, payouts: [{ from: "b", to: "a", amount: 20 }, { from: "c", to: "a", amount: 20 }], deltas: { a: 40, b: -20, c: -20 } });
+  assert.deepEqual(settleFlip(stakes, "hearts", ["a", "b", "c"]).deltas, { a: 20, b: -10, c: -10 }, "default is CARD_PAYOUT");
+});
+```
+
+- [ ] **Step 2: game-core implementation**
+
+In `public/game-core.js` after `const CARD_PAYOUT = 10;` add:
+
+```js
+  const RUNOUT_CARDS = 5;
+  const RUNOUT_MULTIPLIER = 2;
+```
+
+Change `settleFlip`'s signature to `function settleFlip(stakes, suit, playerIds, perCard = CARD_PAYOUT)` and its inner call to `owe(s, b, perCard)`. Add before `priorValue`:
+
+```js
+  // The last RUNOUT_CARDS cards of the deck are never auctioned and every
+  // stake they hit pays double. cardNumber is the card's 1-based position.
+  function isRunoutCard(cardNumber, deckSize) {
+    return cardNumber > deckSize - RUNOUT_CARDS;
+  }
+
+  // Value per counterparty of one card of a suit still to come: every
+  // remaining card is equally likely to land in any future position, and
+  // the last RUNOUT_CARDS positions pay RUNOUT_MULTIPLIER times.
+  function cardValue(cardsRemaining) {
+    if (cardsRemaining <= 0) return 0;
+    const doubled = Math.min(RUNOUT_CARDS, cardsRemaining);
+    return (CARD_PAYOUT * (cardsRemaining + doubled * (RUNOUT_MULTIPLIER - 1))) / cardsRemaining;
+  }
+```
+
+In `priorValue` change the `raw` line to:
+
+```js
+    const raw = Math.round((cardValue(cardsRemaining) * cardsRemaining * (POOL_PER_SUIT - seen)) / unseen);
+```
+
+Export `RUNOUT_CARDS, RUNOUT_MULTIPLIER` after `CARD_PAYOUT` and `isRunoutCard, cardValue` after `settleFlip`. Run `node --test tests/game-core.test.js`: PASS.
+
+- [ ] **Step 3: fair value**
+
+In `tests/fair-value.test.js` replace the `fairValue is CARD_PAYOUT times...` test with:
+
+```js
+test("fairValue is cardValue(cards left) times the expected remaining count of the reference suit", () => {
+  const args = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 };
+  const e = expectedRemaining(args);
+  // 20 cards left, the last 5 double: each expected card is worth 10 * 25 / 20 = 12.5.
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * e.spades) < 1e-9);
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * (6 + 10 * 4 / 30)) < 1e-9);
+  const late = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: { spades: 5, hearts: 5, diamonds: 3, clubs: 2 }, playerCount: 2 };
+  // 5 cards left, all of them double.
+  assert.ok(Math.abs(fairValue({ ...late, reference: "clubs" }) - 20 * expectedRemaining(late).clubs) < 1e-9);
+});
+```
+
+In `lib/fair-value.js` import `cardValue` alongside `CARD_PAYOUT` (drop `CARD_PAYOUT` if nothing else uses it) and make `fairValue`:
+
+```js
+// Value of one stake contract on the reference suit, per counterparty: the
+// expected count still to come, priced with the doubled runout tail.
+function fairValue({ hand, flips, playerCount, reference }) {
+  const { remaining, cardsLeft } = posterior({ hand, flips, playerCount });
+  return cardValue(cardsLeft) * remaining[reference];
+}
+```
+
+Run `node --test tests/fair-value.test.js tests/bots.test.js`: PASS.
+
+- [ ] **Step 4: state machine tests**
+
+In `tests/game.test.js`:
+
+In `missing bids resolve to 0 at the deadline and the purchase is applied at once` add `assert.equal(entry.runout, false);` after the `entry.void` assertion and change the sorted key list to:
+
+```js
+  assert.deepEqual(Object.keys(entry).sort(), ["bids", "buyers", "deltas", "flipped", "hits", "index", "payouts", "purchase", "reference", "runout", "sellers", "topBid", "void"]);
+```
+
+In `the last auction leads to results with hands revealed and no pending timers` change `assert.equal(game.stakes.length, 19, "one stake per non-void auction");` to `assert.equal(game.stakes.length, 15, "one stake per auction; the runout has none");` and add after it:
+
+```js
+  const runout = game.history.filter((h) => h.runout);
+  assert.deepEqual(runout.map((h) => h.index), [16, 17, 18, 19]);
+  assert.ok(runout.every((h) => Object.keys(h.bids).length === 0 && h.buyers.length === 0 && h.sellers.length === 0 && h.topBid === null && h.flipped === "hearts"));
+  // Cards 11..20 are hearts and p1 bought hearts at auctions 11..15. Card 15
+  // (auction 14's flip) pays four stakes at 10; card 16 (auction 15's flip,
+  // the first runout card) pays five stakes at 20; so does card 17 (runout 16).
+  assert.deepEqual(game.history[13].payouts, [{ from: "p2", to: "p1", amount: 40 }]);
+  assert.equal(game.history[14].hits, 5);
+  assert.deepEqual(game.history[14].payouts, [{ from: "p2", to: "p1", amount: 100 }]);
+  assert.deepEqual(game.history[15].payouts, [{ from: "p2", to: "p1", amount: 100 }]);
+```
+
+Add after that test:
+
+```js
+test("runout steps refuse bids, report no time left, and lead to results", () => {
+  const { clock, game } = setup();
+  while (!(game.auction && game.auction.runout)) {
+    if (game.phase === "bidding") for (const p of game.players) game.bid(p.id, { auction: game.auction.index, amount: p.id === "p1" ? 25 : 10, locked: true });
+    clock.advance(CONFIG.revealBidsMs);
+    clock.advance(CONFIG.revealCardMs);
+  }
+  assert.equal(game.phase, "reveal");
+  assert.equal(game.revealStep, "card");
+  assert.equal(game.auction.index, 16);
+  assert.equal(game.remainingMs(), 0);
+  assert.deepEqual(game.bid("p1", { auction: 16, amount: 10, locked: true }), { ok: false, error: "not_bidding" });
+  assert.equal(game.history.length, 16);
+  assert.equal(game.history[15].runout, true);
+  assert.equal(game.history[15].flipped, "hearts");
+  assert.equal(game.stakes.length, 15);
+  assert.equal(clock.pending(), 1, "one runout timer");
+  clock.advance(CONFIG.revealCardMs * 3);
+  assert.equal(game.phase, "reveal");
+  assert.equal(game.auction.index, 19);
+  clock.advance(CONFIG.revealCardMs);
+  assert.equal(game.phase, "results");
+  assert.equal(game.auction, null);
+  assert.equal(game.cardsRemaining(), 0);
+  assert.equal(clock.pending(), 0);
+});
+```
+
+In `tests/snapshot.test.js` add `"runout"` to `HISTORY_KEYS`.
+
+Run `node --test tests/game.test.js tests/snapshot.test.js`: FAIL (`runout` missing, stakes 19, no runout steps).
+
+- [ ] **Step 5: state machine implementation**
+
+`lib/game.js` import line:
+
+```js
+const { MIN_PLAYERS, MAX_PLAYERS, MAX_BID, CARD_PAYOUT, RUNOUT_MULTIPLIER, deal, settlePurchase, settleFlip, isRunoutCard, countSuits } = GameCore;
+```
+
+In `resolve`'s entry literal add `runout: false,` directly after `void: r.void,`. Replace `flipAndPay` and `advance` with:
+
+```js
+  function flipAndPay() {
+    const entry = game.history[game.history.length - 1];
+    const cardNumber = game.flipIndex + 1;
+    const card = game.deck[game.flipIndex];
+    const perCard = isRunoutCard(cardNumber, game.deck.length) ? CARD_PAYOUT * RUNOUT_MULTIPLIER : CARD_PAYOUT;
+    const result = settleFlip(game.stakes, card, playerIds(), perCard);
+    game.flipIndex += 1;
+    entry.flipped = card;
+    entry.hits = result.hits;
+    entry.payouts = result.payouts;
+    const deltas = {};
+    for (const p of game.players) deltas[p.id] = (entry.purchase[p.id] || 0) + (result.deltas[p.id] || 0);
+    entry.deltas = deltas;
+    for (const p of game.players) p.score += result.deltas[p.id] || 0;
+    game.revealStep = "card";
+    armTimer("revealCard", config.revealCardMs, advance);
+    onChange();
+  }
+
+  // The last RUNOUT_CARDS cards are never a reference: each is flipped in
+  // its own step with no bidding, and every stake it hits pays double.
+  function runoutStep() {
+    const index = game.auction.index + 1;
+    game.auction = { index, runout: true, deadlineAt: 0, bids: {} };
+    const purchase = {};
+    for (const p of game.players) purchase[p.id] = 0;
+    game.history.push({
+      index, reference: reference(), bids: {}, buyers: [], sellers: [], topBid: null, void: false, runout: true,
+      purchase, flipped: null, hits: null, payouts: null, deltas: null
+    });
+    game.phase = "reveal";
+    flipAndPay();
+  }
+
+  function advance() {
+    if (cardsRemaining() === 0) {
+      game.phase = "results";
+      game.revealStep = null;
+      game.auction = null;
+      onChange();
+      return;
+    }
+    // The reference is the last flipped card, number flipIndex.
+    if (isRunoutCard(game.flipIndex, game.deck.length)) {
+      runoutStep();
+      return;
+    }
+    startAuction(game.auction.index + 1);
+  }
+```
+
+In `lib/snapshot.js`'s `cloneEntry` add `runout: h.runout,` after `void: h.void,`.
+
+Run `npm test`: PASS, every file (the snapshot `results` test still sees 20 entries for three players: 16 auctions plus 4 runout steps).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add public/game-core.js lib/fair-value.js lib/game.js lib/snapshot.js tests/game-core.test.js tests/fair-value.test.js tests/game.test.js tests/snapshot.test.js
+git commit -m "feat: runout — the last five cards skip the auction and pay double"
+```
+
+---
+
 ### Task 6: `transitions.js`: leg baselines and streams
 
 **Files:**
@@ -1168,10 +1418,53 @@ In `renderResults` replace the `cells` array with:
       ];
 ```
 
+- [ ] **Step 7b: Runout (spec 2.6)**
+
+Add `RUNOUT_CARDS, cardValue` to the `window.GameCore` destructure. In `public/index.html` change the deck markup to:
+
+```html
+          <div id="deck" class="deck" aria-label="Deck"><span id="deckCount" class="deck-count"></span><span id="deckDouble" class="deck-double" hidden>×2</span></div>
+```
+
+Add `deckDouble: $("deckDouble"),` to `els`. In `resetTransient` add `els.deckDouble.style.visibility = "";`. In `renderCentre`, after the `deckCount` line add:
+
+```js
+    els.deckDouble.hidden = lobby || state.cardsRemaining === 0 || state.cardsRemaining > RUNOUT_CARDS;
+```
+
+and change `const showPrice = state.phase === "reveal" && last;` to `const showPrice = state.phase === "reveal" && last && !last.runout;`. In `renderSeats` change `tag.hidden = !inReveal;` to `tag.hidden = !inReveal || Boolean(last.runout);` (a runout entry has no bids). Change `paintHint` to price a card with the doubled tail:
+
+```js
+  function paintHint() {
+    const unit = cardValue(state.cardsRemaining || 0);
+    els.bidHint.textContent = unit > 0 ? `${(draft.amount / unit).toFixed(1)} cards` : "";
+  }
+```
+
+In `renderLog`'s Bids branch, show a dash for runout columns:
+
+```js
+        if (entry && logMode === "bids") {
+          if (entry.runout) {
+            cell.textContent = "–";
+            cell.classList.add("void");
+          } else {
+            cell.textContent = String(entry.bids[p.id]);
+            if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
+          }
+        } else if (entry && entry.deltas) {
+```
+
+In `renderResults` the Bids cell becomes `["", h.runout ? "–" : state.players.map((p) => h.bids[p.id]).join(" / ")]` and the Buyer cell `["", h.runout ? "runout" : h.void ? "void" : h.buyers.map(nameOf).join(", ")]`. In `public/styles.css` add after the `.deck-count` rule (make sure `.deck` is `position: relative`; add it if not):
+
+```css
+.deck-double { position: absolute; right: -12px; top: -12px; padding: 1px 7px; border-radius: 999px; background: var(--gold); color: #1a1408; font-weight: 800; font-size: 0.75rem; font-family: ui-monospace, Menlo, Consolas, monospace; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); z-index: 2; }
+```
+
 - [ ] **Step 8: Syntax check and smoke run**
 
 Run: `node --check public/js/table.js && npm test`
-Expected: syntax OK, tests pass. Then start `PORT=3011 node server.js` in the background, open `http://localhost:3011/` in a browser or headless Chromium, quick play, and confirm the dock hint shows `4.4 cards` at auction 1 and no console errors appear. (Timelines still reference `displayScores`; the reveal animations are fixed in Task 8, so expect a `[table] timeline failed` console error at the first reveal until then. That error is the one thing allowed at this step.) Stop the server.
+Expected: syntax OK, tests pass. Then start `PORT=3011 node server.js` in the background, open `http://localhost:3011/` in a browser or headless Chromium, quick play, and confirm the dock hint shows `4.4 cards` at auction 1 (the default bid is 55 and a card is worth 12.6) and no console errors appear. (Timelines still reference `displayScores`; the reveal animations are fixed in Task 8, so expect a `[table] timeline failed` console error at the first reveal until then. That error is the one thing allowed at this step.) Stop the server.
 
 - [ ] **Step 9: Commit**
 
@@ -1312,6 +1605,34 @@ with:
 
 The badge loop and the fade of tags and buyer glow stay as they are (they use `last.deltas`, the net of both legs). Only the second `mine` announcement goes, as described above.
 
+- [ ] **Step 3b: Runout (spec 2.6)**
+
+Add `RUNOUT_CARDS` to the `window.GameCore` destructure at the top of `timelines.js`. In `revealCardTimeline`, right after the `streams` line from Step 3, add:
+
+```js
+  // The first runout card: the last five cards pay double from here on.
+  const deckSize = state.flipped.length + state.cardsRemaining;
+  const firstRunout = state.flipped.length === deckSize - RUNOUT_CARDS + 1;
+  if (firstRunout) els.deckDouble.style.visibility = "hidden";
+```
+
+and change the announcement line to prefix the runout notice:
+
+```js
+  t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.join(", ")}. ${you}`);
+```
+
+After the flip lands on the slot (right after `old.remove();`) add:
+
+```js
+  if (firstRunout) {
+    audio.play("rise");
+    await pop(ctx, els.deckDouble);
+  }
+```
+
+Runout steps themselves need nothing new: they arrive as `revealCard` transitions with empty bids, so the tags stay hidden, `legBaseline` undoes only the payout, and the streams carry the doubled amounts the server computed.
+
 - [ ] **Step 4: Syntax check, tests, and a headless run**
 
 Run: `node --check public/js/timelines.js && npm test`
@@ -1398,7 +1719,7 @@ Slide 1 (index 0) becomes:
 
 ```js
   {
-    caption: "Each round you bid for the suit on top. Own it, and every later flip of that suit pays you 10 from each player who sold it to you. Most chips when the deck runs out wins.",
+    caption: "Each round you bid for the suit on top. Own it, and every later flip of that suit pays you 10 from each player who sold it to you. The last five cards skip the auction and pay double. Most chips when the deck runs out wins.",
     async run(ctx, m) {
       m.refSlot.replaceChildren(cardEl("hearts", "big"));
       await ctx.wait(400);
@@ -1628,14 +1949,15 @@ test("a full two-player game reaches results with scores equal to the sum of rou
     b.send({ type: "bid", auction: k, amount: 10, locked: true });
     s = await a.until((m) => m.type === "state" && (m.phase === "results" || (m.phase === "bidding" && m.auctionIndex === k + 1)), `after auction ${k}`, before);
   }
-  assert.equal(s.history.length, 19);
-  assert.equal(s.stakes.length, 19);
+  assert.equal(s.history.length, 19, "15 auctions and 4 runout steps");
+  assert.equal(s.stakes.length, 15);
+  assert.deepEqual(s.history.filter((h) => h.runout).map((h) => h.index), [16, 17, 18, 19]);
   for (const p of s.players) {
     const total = s.history.reduce((acc, h) => acc + (h.deltas[p.id] || 0), 0);
     assert.equal(p.score, total, `${p.id} score reconciles with history`);
   }
   assert.equal(s.players.reduce((acc, p) => acc + p.score, 0), 0);
-  assert.ok(s.history.every((h) => h.buyers.length === 1 && h.buyers[0] === a.playerId), "Ann outbids Ben every round");
+  assert.ok(s.history.filter((h) => !h.runout).every((h) => h.buyers.length === 1 && h.buyers[0] === a.playerId), "Ann outbids Ben every auction");
   a.ws.close();
   b.ws.close();
 });
@@ -1721,7 +2043,7 @@ console.log(JSON.stringify({ errors, log: await page.evaluate(() => window.__log
 await browser.close();
 ```
 
-Run: `node stakes-check.mjs` from the scratchpad. Expected: `errors` is `[]`; the auction-1 hint is `4.4 cards` (or whatever `priorValue` gives for that deck; it must equal the number in the dock ÷ 10); `chips` lists at least one `stake-chip <suit>`; `badges` lists signed deltas; the Payouts log rows sum per player to the seat score in `seats`. Read the three screenshots: the purchase shot should show the winning-bid badge with a suit glyph and a stake chip under the buyer's score; the payout shot a gold flash or none and the badges under each score.
+Run: `node stakes-check.mjs` from the scratchpad. Expected: `errors` is `[]`; the auction-1 hint is `4.4 cards` (the default bid 55 divided by the card value 12.6); `chips` lists at least one `stake-chip <suit>`; `badges` lists signed deltas; the Payouts log rows sum per player to the seat score in `seats`. Read the three screenshots: the purchase shot should show the winning-bid badge with a suit glyph and a stake chip under the buyer's score; the payout shot a gold flash or none and the badges under each score.
 
 - [ ] **Step 3: Full suite and cleanup**
 

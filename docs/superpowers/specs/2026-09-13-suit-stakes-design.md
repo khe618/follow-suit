@@ -69,7 +69,21 @@ An all-way tie is void: `buyers` and `sellers` are empty, the purchase deltas ar
 
 ### 2.5 What is public
 
-Everything in v1 section 2.6, plus every stake: the auction that created it, its suit, its buyers, its sellers. After each auction the record also shows each player's purchase delta and, after the flip, the number of stakes hit, the netted payout streams, and the round's net delta.
+Everything in v1 section 2.6 of that spec, plus every stake: the auction that created it, its suit, its buyers, its sellers. After each auction the record also shows each player's purchase delta and, after the flip, the number of stakes hit, the netted payout streams, and the round's net delta.
+
+### 2.6 The runout
+
+The last five cards of the deck are the **runout**. `RUNOUT_CARDS = 5`, `RUNOUT_MULTIPLIER = 2`. Card `c` (1-based) is a runout card when `c > N − 5`, where `N` is the deck size (20 for two or four players, 21 for three).
+
+- A runout card is never a reference card, so there is no auction for it. Auctions run `1 .. N − 5` (15 for two and four players, 16 for three). Auction `N − 5`'s card step flips the first runout card as usual.
+- After that, the remaining four runout cards are flipped one per **runout step**: no bidding, no purchase, no new stake. Each runout step is `revealCardMs` long and is a card step in every other respect, then results.
+- A flip of a runout card pays every stake it hits `CARD_PAYOUT × RUNOUT_MULTIPLIER = 20` per seller per buyer instead of 10. The netting rule is unchanged.
+- History: every entry carries `runout` (false for auctions). A runout step appends an entry with `runout: true`, `bids: {}`, `buyers: []`, `sellers: []`, `topBid: null`, `void: false`, an all-zero `purchase`, and the card-step fields set when it flips; entry indexes keep counting, so a two-player deal still has 19 entries (15 auctions, 4 runout steps) and a three-player deal 20.
+- `game.auction` during a runout step is `{ index, runout: true, deadlineAt: 0, bids: {} }`, so `auctionIndex` in the snapshot stays distinct per step and the client's transition keys stay unique; `bid` is refused with `not_bidding` as in any non-bidding phase and `remainingMs` is 0.
+- Fair value and the prior: a stake bought at auction `k` pays on `cardsLeft = N − k` future cards, the last five of them double. Every remaining card is equally likely to land in any future position, so one expected card of the suit is worth `cardValue(cardsLeft) = CARD_PAYOUT · (cardsLeft + min(5, cardsLeft) · (RUNOUT_MULTIPLIER − 1)) / cardsLeft` (10 × 24 / 19 at auction 1 of a 20-card deck, 20 at the last auction). `fairValue = cardValue(cardsLeft) · expectedRemaining[s]` and `priorValue = round(cardValue · naive expected count)`, which gives 55 at auction 1 of a four-player deal. `MAX_BID` stays 100; a bid above it clamps.
+- Client: the dock hint reads `bid / cardValue(cardsRemaining)` cards. From the moment `cardsRemaining ≤ 5` the deck carries a gold `×2` pill. When the first runout card is flipped the table announces "Final five cards, payouts double" before the flip's outcome and the pill pops in. Runout steps show no bid tags and no winning-bid badge. The log shows a runout column with a dash in the Bids view and the round delta in the Payouts view; the results table shows `runout` in the Buyer column and a dash for bids.
+
+Rationale (owner, 2026-09-13): late auctions carry little value and little new information, so they drag; skipping them keeps the deal moving, and doubling the last five flips keeps the stakes everyone already holds interesting to the end.
 
 ## 3. Server
 
@@ -78,8 +92,8 @@ Everything in v1 section 2.6, plus every stake: the auction that created it, its
 - `PAYOUT` becomes `CARD_PAYOUT = 10`. `MAX_BID` stays 100 (the largest possible stake is 9 cards, worth 90).
 - `resolveBids(bids)` returns `{ topBid, buyers, sellers, void }` as today except that `price` is renamed `topBid`, because it no longer names an amount that changes hands. An all-way tie has empty `buyers` and `sellers` and `void: true`.
 - `settlePurchase(bids)` replaces `settle`: `resolveBids` plus `deltas`, the purchase deltas above, initialised to 0 for every id in `bids`. Void returns all-zero deltas.
-- `settleFlip(stakes, suit, playerIds)` returns `{ hits, payouts, deltas }`. `hits` is the number of stakes whose suit is `suit`. `payouts` is the list of `{ from, to, amount }` for every ordered pair that owes money after netting every hit stake, ordered by `playerIds` (from, then to), zero pairs omitted. `deltas` is the net per player, initialised to 0 for every id in `playerIds`. No hit stakes: `hits 0`, `payouts []`, all-zero deltas.
-- `priorValue(flipped, cardsRemaining)` returns `clamp(round(10 · cardsRemaining · (10 − F_s) / (40 − k)), 0, MAX_BID)` for the reference suit `s` (the last card in `flipped`), where `F_s` is that suit's count among the flipped cards and `k` is `flipped.length`. From a viewpoint with no hand, each remaining deck card is a uniformly random unseen pool card, so this is the expected remaining count of `s`. It is public arithmetic and lives in the shared module.
+- `settleFlip(stakes, suit, playerIds, perCard = CARD_PAYOUT)` returns `{ hits, payouts, deltas }`; the card step passes `CARD_PAYOUT × RUNOUT_MULTIPLIER` for a runout card. `hits` is the number of stakes whose suit is `suit`. `payouts` is the list of `{ from, to, amount }` for every ordered pair that owes money after netting every hit stake, ordered by `playerIds` (from, then to), zero pairs omitted. `deltas` is the net per player, initialised to 0 for every id in `playerIds`. No hit stakes: `hits 0`, `payouts []`, all-zero deltas.
+- `priorValue(flipped, cardsRemaining)` returns `clamp(round(cardValue(cardsRemaining) · cardsRemaining · (10 − F_s) / (40 − k)), 0, MAX_BID)` for the reference suit `s` (the last card in `flipped`), where `F_s` is that suit's count among the flipped cards and `k` is `flipped.length`. From a viewpoint with no hand, each remaining deck card is a uniformly random unseen pool card, so this is the expected remaining count of `s`. It is public arithmetic and lives in the shared module.
 
 ### 3.2 `lib/game.js`
 
@@ -87,12 +101,12 @@ State gains `stakes: []`, reset by the same full match reset as `history`. `play
 
 - **Resolve** (deadline or all locked): missing bids become 0, `settlePurchase(bids)`, apply the purchase deltas to scores **now**, push the history entry, push the stake unless void, enter `reveal/bids`, arm the bids timer. Scores therefore already include the purchase when the `reveal/bids` snapshot is built. This replaces v1's rule that the server applies one net delta at the card step; two legs of different kinds are simpler when each is applied where it happens.
 - **Flip** (after `revealBidsMs`): flip the next card, `settleFlip(stakes, card, playerIds())` over **all** stakes, apply its deltas, complete the history entry, enter `reveal/card`, arm the card timer.
-- **Advance** (after `revealCardMs`): if cards remain, start the next auction with the flipped card as reference; else results.
+- **Advance** (after `revealCardMs`): if no cards remain, results; else if the flipped card is a runout card (section 2.6), a runout step; else the next auction with the flipped card as reference.
 
 History entry, exact shape:
 
 ```
-{ index, reference, bids, buyers, sellers, topBid, void,
+{ index, reference, bids, buyers, sellers, topBid, void, runout,
   purchase,            // { [id]: number } for every player, set at resolve
   flipped,             // suit, null until the card step
   hits,                // number, null until the card step
@@ -104,7 +118,7 @@ History entry, exact shape:
 
 ### 3.3 `lib/fair-value.js`
 
-The existing enumeration over compositions `U` already computes weights `w(U)` and the deck `D = H + U`. Add `expectedRemaining({ hand, flips, playerCount })` returning, per suit, `Σ_U w(U) · (D_s − F_s)`: the expected number of that suit still in the deck. `nextSuitProbabilities` stays (it is `expectedRemaining / (|D| − k)`) because its tests pin the enumeration against a Monte Carlo. `fairValue({ hand, flips, playerCount, reference })` becomes `CARD_PAYOUT · expectedRemaining[reference]`. Still server-only, still never served.
+The existing enumeration over compositions `U` already computes weights `w(U)` and the deck `D = H + U`. Add `expectedRemaining({ hand, flips, playerCount })` returning, per suit, `Σ_U w(U) · (D_s − F_s)`: the expected number of that suit still in the deck. `nextSuitProbabilities` stays (it is `expectedRemaining / (|D| − k)`) because its tests pin the enumeration against a Monte Carlo. `fairValue({ hand, flips, playerCount, reference })` becomes `cardValue(|D| − k) · expectedRemaining[reference]` (section 2.6). Still server-only, still never served.
 
 ### 3.4 `lib/bots.js`
 
