@@ -1,6 +1,6 @@
-const { SUIT_SYMBOLS, SUITS, POOL_PER_SUIT } = window.GameCore;
+const { SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, RUNOUT_CARDS } = window.GameCore;
 const POOL = SUITS.length * POOL_PER_SUIT;
-const { paymentStreams, displayScores, payoutBaseline } = window.Transitions;
+const { paymentStreams, legBaseline } = window.Transitions;
 
 // Worst case (2 players: 20 cards, 10 of them yours): 20*70 + 350 + (10*50 + 400)
 // + 2000 + 400 + 400 + (20*18 + 350) + 800 + 620 + 250 ≈ 7900 ms.
@@ -244,12 +244,17 @@ export async function revealBidsTimeline(ctx, t, state) {
   const last = state.history[state.history.length - 1];
   const players = t.orderedPlayers(state);
   const ids = state.players.map((p) => p.id);
-  // In reveal/bids the server scores are still pre-auction: the purchase leg
-  // starts from them and lands on displayScores (post-purchase).
-  const fromScores = rawScores(state);
+  // The server has applied the purchase: chips fly from the pre-purchase
+  // baseline onto the snapshot scores.
+  const fromScores = legBaseline(state);
+  const toScores = rawScores(state);
   const tags = new Map(players.map((p) => [p.id, t.seatEl(p.id).querySelector(".bid-tag")]));
   for (const tag of tags.values()) tag.style.visibility = "hidden";
   els.priceBadge.style.visibility = "hidden";
+  // The state layer already drew the buyer's new stake chip; hold it back
+  // until the purchase lands.
+  const newChips = last.void ? [] : last.buyers.map((id) => t.seatEl(id).querySelector(`.stake-chip.${last.reference}`)).filter(Boolean);
+  for (const chip of newChips) chip.style.visibility = "hidden";
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   const order = players.slice().sort((a, b) => last.bids[a.id] - last.bids[b.id]);
@@ -261,11 +266,15 @@ export async function revealBidsTimeline(ctx, t, state) {
   audio.play(last.void ? "tap" : "rise");
   await pop(ctx, els.priceBadge);
   const nameOf = (id) => state.players.find((p) => p.id === id).name;
-  t.announce(last.void ? "No trade" : `${last.buyers.map(nameOf).join(" and ")} ${last.buyers.length > 1 ? "buy" : "buys"} at ${last.price}`);
+  t.announce(last.void ? "No trade" : `${last.buyers.map(nameOf).join(" and ")} ${last.buyers.length > 1 ? "buy" : "buys"} ${last.reference}`);
   if (last.void) return;
   // Let the bids sink in before the chips move.
   await ctx.wait(BIDS_PAUSE_MS);
-  await payStreams(ctx, t, paymentStreams(last, ids, "bids"), fromScores, displayScores(state));
+  await payStreams(ctx, t, paymentStreams(last, "bids"), fromScores, toScores);
+  // Awaited: the sequencer cancels every tracked animation the moment the
+  // timeline returns, so an un-awaited pop would never be seen.
+  if (newChips.length) audio.play("tag");
+  await ctx.until(Promise.all(newChips.map((chip) => pop(ctx, chip).catch(() => {}))));
 }
 
 export async function revealCardTimeline(ctx, t, state) {
@@ -274,7 +283,15 @@ export async function revealCardTimeline(ctx, t, state) {
   const ids = state.players.map((p) => p.id);
   // Baseline from the snapshot itself, never from what the DOM showed: the
   // bids snapshot may have been skipped or its animation interrupted.
-  const fromScores = payoutBaseline(state);
+  const fromScores = legBaseline(state);
+  const toScores = rawScores(state);
+  const payoutDelta = (id) => ((last.deltas && last.deltas[id]) || 0) - ((last.purchase && last.purchase[id]) || 0);
+  const hit = (last.hits || 0) > 0;
+  const streams = paymentStreams(last, "card");
+  // The first runout card: the last five cards pay double from here on.
+  const deckSize = state.flipped.length + state.cardsRemaining;
+  const firstRunout = state.flipped.length === deckSize - RUNOUT_CARDS + 1;
+  if (firstRunout) els.deckDouble.style.visibility = "hidden";
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   // Flip: the state layer already shows the new reference. Hide it, stand in
@@ -296,23 +313,31 @@ export async function revealCardTimeline(ctx, t, state) {
     top.className = `card big ${last.flipped}`;
     top.textContent = SUIT_SYMBOLS[last.flipped];
   });
-  els.flash.className = `rail-flash ${last.matched ? "good" : "bad"}`;
-  audio.play(last.matched ? "match" : "miss");
-  t.announce(`${suitName(last.flipped)}, ${last.matched ? "match" : "miss"}`);
-  ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+  const myPayout = payoutDelta(state.you);
+  audio.play(myPayout > 0 ? "match" : myPayout < 0 ? "miss" : "tap");
+  if (hit) {
+    els.flash.className = "rail-flash pay";
+    ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+  }
+  const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
+  const mine = (last.deltas && last.deltas[state.you]) || 0;
+  const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
+  t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.join(", ")}. ${you}`);
   await ctx.wait(COMPARE_MS);
   await ctx.fly(top, beside, slot, SLIDE_MS);
   els.refSlot.style.visibility = "";
   top.remove();
   old.remove();
+  if (firstRunout) {
+    audio.play("rise");
+    await pop(ctx, els.deckDouble);
+  }
 
-  // Payout leg (match only), then the net delta on every seat: a badge that
-  // pops in, holds still long enough to read, and fades. No drift, because a
-  // moving number is hard to read at a glance.
-  const to = displayScores(state);
-  const streams = paymentStreams(last, ids, "card");
-  if (streams.length) await payStreams(ctx, t, streams, fromScores, to);
-  else for (const id of ids) t.showScore(id, to[id]);
+  // Payout leg: every stake on the flipped suit, netted per pair. Then the
+  // net round delta on every seat: a badge that pops in, holds still long
+  // enough to read, and fades.
+  if (streams.length) await payStreams(ctx, t, streams, fromScores, toScores);
+  else for (const id of ids) t.showScore(id, toScores[id]);
   const badges = [];
   for (const id of ids) {
     const d = (last.deltas && last.deltas[id]) || 0;
@@ -323,8 +348,6 @@ export async function revealCardTimeline(ctx, t, state) {
     badges.push(badge);
     ctx.animate(badge, [{ transform: "translate(-50%, 0) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
   }
-  const mine = (last.deltas && last.deltas[state.you]) || 0;
-  t.announce(mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
   try {
     await ctx.wait(DELTA_IN_MS + DELTA_HOLD_MS);
     await ctx.until(Promise.all(badges.map((b) => ctx.animate(b, [{ opacity: 1 }, { opacity: 0 }], { duration: DELTA_OUT_MS, fill: "forwards" }).catch(() => {}))));
