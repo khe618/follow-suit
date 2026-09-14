@@ -171,11 +171,15 @@ export function createTable({ send, roomCode, toast, audio }) {
   function closeLogSheet() {
     if (!wide.matches && els.logSheet.open) els.logSheet.close();
   }
-  wide.addEventListener("change", syncLogSheet);
-  els.logBtn.addEventListener("click", openLogSheet);
-  els.logCloseBtn.addEventListener("click", closeLogSheet);
-  els.logSheet.addEventListener("close", () => { if (!wide.matches) els.logBtn.focus(); });
-  els.logSheet.addEventListener("click", (e) => { if (e.target === els.logSheet) closeLogSheet(); });
+  // createTable runs again on every rejoin (app.js) against the same static
+  // DOM, so these have to come off again in dispose or they stack up.
+  const teardown = new AbortController();
+  const on = { signal: teardown.signal };
+  wide.addEventListener("change", syncLogSheet, on);
+  els.logBtn.addEventListener("click", openLogSheet, on);
+  els.logCloseBtn.addEventListener("click", closeLogSheet, on);
+  els.logSheet.addEventListener("close", () => { if (!wide.matches) els.logBtn.focus(); }, on);
+  els.logSheet.addEventListener("click", (e) => { if (e.target === els.logSheet) closeLogSheet(); }, on);
   syncLogSheet();
 
   // Everything in the column that is not the table. The table is sized from
@@ -795,6 +799,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     clearTimeout(bidSendTimer);
     ringObserver.disconnect();
     chromeObserver.disconnect();
+    teardown.abort();
     anim.cancelAll();
     resetTransient();
   }
