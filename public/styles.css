@@ -243,7 +243,6 @@ label { font-size: 0.85rem; color: var(--muted); }
 .ring-wrap input::-webkit-outer-spin-button, .ring-wrap input::-webkit-inner-spin-button { -webkit-appearance: none; }
 .bid-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .bid-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--gold); height: 28px; }
-.bid-hint { color: var(--muted); font-size: 0.8rem; white-space: nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .step-btn {
   flex: none; display: inline-flex; align-items: center; justify-content: center; height: 36px; min-width: 44px; padding: 0 10px;
   border-radius: 999px; border: 2px solid var(--edge); background: var(--felt-2); color: var(--ink);
@@ -316,7 +315,10 @@ td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
 .tutorial::backdrop { background: rgba(0, 0, 0, 0.65); }
 .tut { position: relative; background: var(--felt-2); border: 1px solid var(--line); border-radius: 16px; padding: 44px 16px 16px; display: flex; flex-direction: column; gap: 12px; color: var(--ink); }
 .tut-close { position: absolute; top: 8px; right: 8px; }
-.tut-stage { display: flex; justify-content: center; min-height: 260px; }
+/* The bottom seat's name, score, and stake chips hang about 42px below the
+   felt (badges included), the same as on the live table. Reserve that much
+   room so nothing lands on the stepper or the caption. */
+.tut-stage { display: flex; justify-content: center; min-height: 260px; padding-bottom: 44px; }
 .mini-table { width: 100%; max-width: 420px; aspect-ratio: 16 / 11; }
 .mini-table .seat { width: 64px; }
 .mini-table .avatar { width: 36px; height: 36px; font-size: 1rem; }

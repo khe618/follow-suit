@@ -13,9 +13,9 @@
   // A dealing snapshot with less time left than this is drawn as its final
   // frame instead. Keep in step with timelines.js.
   const DEAL_TIMELINE_MS = 8500;
-  // Worst case of the reveal-card timeline in timelines.js: turn, compare
-  // beat, slide, the first-runout pill pop (220 ms), payout streams, badge
-  // pop/hold/fade, tag fade. Keep in step with timelines.js; a Node test
+  // Worst case of the reveal-card timeline in timelines.js: turn onto the
+  // slot, hold beat, the first-runout pill pop (220 ms), payout streams,
+  // badge pop/hold/fade, tag fade. Keep in step with timelines.js; a Node test
   // checks it against the config default.
   const CARD_TIMELINE_MS = 5000;
 

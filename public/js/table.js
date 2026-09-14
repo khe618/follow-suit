@@ -2,7 +2,7 @@ import { emptySeat, renderLobbyCentre, initLobbyControls } from "./lobby.js";
 import { createAnim } from "./anim.js";
 import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline } from "./timelines.js";
 
-const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS, cardValue } = window.GameCore;
+const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
@@ -23,7 +23,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
     logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
-    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidHint: $("bidHint"),
+    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
     historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble")
   };
@@ -419,7 +419,6 @@ export function createTable({ send, roomCode, toast, audio }) {
       tenAnnounced = false;
       els.bidInput.value = draft.amount;
       els.bidRange.value = draft.amount;
-      paintHint();
       // The server scores a silent player at 0, so the default the dock
       // shows is sent as soon as the auction opens to make it the real bid.
       if (!state.myBid) scheduleBidSend(true);
@@ -485,21 +484,19 @@ export function createTable({ send, roomCode, toast, audio }) {
   function defaultBid() {
     return priorValue(state.flipped || [], state.cardsRemaining || 0);
   }
-  // Prices a card with the doubled runout tail.
-  function paintHint() {
-    const unit = cardValue(state.cardsRemaining || 0);
-    els.bidHint.textContent = unit > 0 ? `${(draft.amount / unit).toFixed(1)} cards` : "";
-  }
-  function setDraftAmount(raw) {
+  // Both controls always follow the draft, except the one the change came
+  // from: rewriting the number input while it is being typed into would
+  // fight the caret (and it holds focus for the whole auction, so testing
+  // document.activeElement instead would freeze it on every slider drag).
+  function setDraftAmount(raw, source) {
     let n = Math.round(Number(raw));
     if (!Number.isFinite(n)) n = defaultBid();
     n = Math.max(0, Math.min(100, n));
     draft.amount = n;
     draft.locked = false;
-    els.bidRange.value = n;
-    if (document.activeElement !== els.bidInput) els.bidInput.value = n;
+    if (source !== els.bidRange) els.bidRange.value = n;
+    if (source !== els.bidInput) els.bidInput.value = n;
     paintLock();
-    paintHint();
     renderBidStack();
     scheduleBidSend(false);
   }
@@ -635,14 +632,11 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
 
   initLobbyControls(els, { send, roomCode, toast });
-  els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value));
-  els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value));
-  // A step always repaints the number, even while the number input holds
-  // focus (buttons do not take focus on every platform).
+  els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidInput));
+  els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidRange));
   const step = (delta) => {
     audio.play("tap");
     setDraftAmount(draft.amount + delta);
-    els.bidInput.value = draft.amount;
   };
   els.bidDownBtn.addEventListener("click", () => step(-1));
   els.bidUpBtn.addEventListener("click", () => step(1));

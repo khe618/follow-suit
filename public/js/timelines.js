@@ -16,8 +16,6 @@ const SHUFFLE_MS = 800;
 const FLIP_MS = 400;
 const TURN_MS = 620;
 const COMPARE_MS = 800;
-const SLIDE_MS = 280;
-const BESIDE_GAP = 14;
 const HAND_MS = 250;
 const CHIPS_PER_STREAM = 6;
 const CHIP_GAP_MS = 60;
@@ -70,13 +68,7 @@ export async function setAside(ctx, deckEl, deckCountEl, tableEl, count) {
   await ctx.until(Promise.all(flights.map((p) => p.catch(() => {}))));
 }
 
-// Where a flipped card rests for the comparison beat: just right of the
-// reference slot, so old and new suit sit side by side before the new one
-// takes the slot. Shared with the tutorial.
-export function besideSpot(slot) {
-  return { x: slot.x + slot.w + BESIDE_GAP, y: slot.y };
-}
-export { COMPARE_MS, SLIDE_MS };
+export { COMPARE_MS };
 
 // Six chips per buyer→seller (or seller→buyer) pair, all streams in parallel,
 // each arrival ticking both seats' displayed scores. Lands exactly on `to`.
@@ -295,20 +287,19 @@ export async function revealCardTimeline(ctx, t, state) {
 
   // Flip: the state layer already shows the new reference. Hide it, stand in
   // the old reference as a sprite so the slot never goes empty, and turn the
-  // top card of the deck over to rest beside it. The two suits sit side by
-  // side through the match/miss flash, then the new card slides onto the
-  // slot and the state layer takes over.
+  // top card of the deck over directly onto it. The new suit covers the old
+  // one as it lands, holds through the match/miss flash, and then the state
+  // layer takes over.
   els.refSlot.style.visibility = "hidden";
   const deck = ctx.centre(els.deck);
   const slot = ctx.centre(els.refSlot);
-  const beside = besideSpot(slot);
   const old = ctx.spawn(`card big ${last.reference}`, SUIT_SYMBOLS[last.reference]);
   ctx.put(old, slot);
   const top = ctx.spawn("card big down");
   ctx.put(top, deck);
   await ctx.wait(120);
   audio.play("flip");
-  await ctx.turn(top, deck, beside, TURN_MS, () => {
+  await ctx.turn(top, deck, slot, TURN_MS, () => {
     top.className = `card big ${last.flipped}`;
     top.textContent = SUIT_SYMBOLS[last.flipped];
   });
@@ -323,7 +314,6 @@ export async function revealCardTimeline(ctx, t, state) {
   const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
   t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
   await ctx.wait(COMPARE_MS);
-  await ctx.fly(top, beside, slot, SLIDE_MS);
   els.refSlot.style.visibility = "";
   top.remove();
   old.remove();

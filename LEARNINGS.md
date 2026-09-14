@@ -4,6 +4,16 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 
 ---
 
+## 2026-09-13 — A `document.activeElement` guard froze the bid number, because the dock focuses it for the whole auction
+
+**Symptom / context:** Dragging the dock's bid slider moved the slider and the bid stack but left the big ring number stale (slider 77, number still 55). Nothing threw, and the bid actually sent was the slider's value, so only the number lied.
+
+**Root cause:** `setDraftAmount` wrote the number input only when it did *not* hold focus (`document.activeElement !== els.bidInput`), a guard meant to keep a rewrite from fighting the caret while typing. But the bidding phase focuses `bidInput` as soon as the dock opens, so the guard was true for the entire auction and every non-typing update skipped the number.
+
+**Fix / what to do next time:** Take the originating element as an explicit `source` argument and skip only that control, instead of inferring "the user is typing here" from focus. Any `activeElement` check is unsafe in a UI that focuses something on phase entry — pass provenance rather than reading global focus.
+
+**Refs:** `public/js/table.js` `setDraftAmount` and the `bidInput`/`bidRange` listeners; the focus call in the bidding branch of `render`.
+
 ## 2026-09-13 — Animation beats cannot be verified in the Claude-in-Chrome tab; use headless Playwright, and change phase-timer defaults in three places
 
 **Symptom / context:** Reworking the round-P&L badge in `public/js/timelines.js`, the MCP tab never showed a `.delta-badge` at all (MutationObserver on `#seats` recorded nothing across several auctions) while the log and seat scores kept updating. Separately, bumping the reveal-card default made two unrelated-looking tests fail one after another.
@@ -13,6 +23,8 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 **Fix / what to do next time:** For any timeline change, run a headless Playwright script against a spare-port server (`PORT=3011 DEAL_MS=1500 BID_MS=5000 REVEAL_BIDS_MS=1500 node server.js`), join quick play, observe with a MutationObserver plus `getComputedStyle` sampling, and screenshot mid-hold; the extension tab is only good for static state. When changing `dealMs`/`bidMs`/`revealBidsMs`/`revealCardMs` defaults, edit `lib/config.js`, `lib/game.js`, and both test files together. Keep the reveal-card timeline under the `revealCardMs` budget: turn 620 + compare 800 + slide 280 + pay streams ~1.2 s + badge ~1.8 s + fade 300 already sits near 5 s.
 
 **Refs:** `public/js/timelines.js` (`DELTA_*_MS`, `revealCardTimeline`); `lib/game.js:7`; `tests/config.test.js`; `tests/snapshot.test.js`; global log `~/.claude/agent-logs/claude-code.md` "occluded window makes the page document.hidden".
+
+**Update 2026-09-13:** the 280 ms slide is gone — the flipped card now turns straight onto the reference slot, covering the old one, so the budget line reads turn 620 + hold 800 + streams + badge + fade.
 
 ## 2026-09-13 — A socket that closes over its room object can be stranded when the registry deletes that room underneath it
 

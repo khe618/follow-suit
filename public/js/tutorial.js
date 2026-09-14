@@ -1,6 +1,6 @@
 import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
-import { holdSpot, setAside, besideSpot, COMPARE_MS, SLIDE_MS } from "./timelines.js";
+import { holdSpot, setAside, COMPARE_MS } from "./timelines.js";
 
 const { settlePurchase, settleFlip, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, CARD_PAYOUT, RUNOUT_MULTIPLIER } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
@@ -103,24 +103,22 @@ async function dealTo(ctx, m, count, mySuits, onCard = () => {}) {
   });
 }
 
-// Turn the top card of the deck over onto the reference slot, then let the
-// slot's own card take over. With `compare`, the card lands beside the
-// slot first (the callback runs there, for the match/miss flash), holds,
-// then slides onto the slot.
+// Turn the top card of the deck over onto the reference slot, covering the
+// card already there, then let the slot's own card take over. With
+// `compare`, the callback runs as the card lands (the match/miss flash) and
+// the new suit holds on the slot long enough to read.
 async function turnReference(ctx, m, suit, ms = 600, compare = null) {
   const deck = ctx.centre(m.deck);
   const slot = ctx.centre(m.refSlot);
   const top = ctx.spawn("card big down");
   ctx.put(top, deck);
-  const landing = compare ? besideSpot(slot) : slot;
-  await ctx.turn(top, deck, landing, ms, () => {
+  await ctx.turn(top, deck, slot, ms, () => {
     top.className = `card big ${suit}`;
     top.textContent = SUIT_SYMBOLS[suit];
   });
   if (compare) {
     compare();
     await ctx.wait(COMPARE_MS);
-    await ctx.fly(top, landing, slot, SLIDE_MS);
   }
   m.refSlot.replaceChildren(cardEl(suit, "big"));
   top.remove();
