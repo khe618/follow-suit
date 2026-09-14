@@ -14,7 +14,9 @@ JS in the browser, server-side bots. The rules are
 in `docs/superpowers/specs/2026-09-13-suit-stakes-design.md` (which amends
 `2026-09-12-follow-suit-design.md`); the client (poker-table layout, dealing
 phase, animations, sound effects, tutorial) is in
-`docs/superpowers/specs/2026-09-13-game-feel-design.md`.
+`docs/superpowers/specs/2026-09-13-game-feel-design.md`, as amended by
+`docs/superpowers/specs/2026-09-13-table-ui-overhaul-design.md` (fitted seat
+pods, owned-card stacks, the log sheet, the results recap, the bonus round).
 
 ## Running locally
 
@@ -36,7 +38,8 @@ Environment variables (defaults in `server.js`): `PORT`, `DEAL_MS`, `BID_MS`,
 - `public/game-core.js`: rules shared by server and browser (UMD, dependency-free).
   Deal, settlement, ranking, constants.
 - `public/seat-layout.js`, `public/transitions.js`, `public/sequencer.js`: pure
-  UMD helpers for the browser, unit-tested in Node. Seat geometry, the
+  UMD helpers for the browser, unit-tested in Node. Seat geometry (including
+  `fitRadii`, which fits the seat ring to the felt actually on screen), the
   snapshot-to-animation planner (plus leg baselines and payment streams),
   and the generation-based cancellable sequencer.
 - `lib/fair-value.js`: exact Bayesian probability of the next suit. Server only;
@@ -58,7 +61,15 @@ Environment variables (defaults in `server.js`): `PORT`, `DEAL_MS`, `BID_MS`,
   and join screens; `timelines.js` and `anim.js` own the sprite layer;
   `audio.js` synthesizes the sound effects; `tutorial.js` is the how-to-play
   dialog. The design is in
-  `docs/superpowers/specs/2026-09-13-game-feel-design.md`.
+  `docs/superpowers/specs/2026-09-13-game-feel-design.md` and
+  `docs/superpowers/specs/2026-09-13-table-ui-overhaul-design.md`.
+
+  Two rules the client depends on. The last five cards are the **bonus
+  round**, and it begins at the *final auction* (`cardsRemaining <=
+  RUNOUT_CARDS`), not at the first no-auction flip. Nothing about doubling
+  may be derived from a history entry's `runout` flag: the first doubled card
+  is the payoff flip of that final auction, whose entry has `runout: false`.
+  Derive it from card position instead.
 
 ## Testing
 

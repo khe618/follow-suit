@@ -73,11 +73,9 @@ export function createTable({ send, roomCode, toast, audio }) {
       avatar.classList.remove("peek");
       avatar.style.opacity = "";
       for (const b of el.querySelectorAll(".delta-badge")) b.remove();
+      for (const k of el.querySelectorAll(".stake-stack")) k.style.visibility = "";
       for (const c of el.querySelectorAll(".stake-card")) c.style.visibility = "";
-      for (const b of el.querySelectorAll(".stake-count")) {
-        b.style.visibility = "";
-        b.textContent = b.closest(".stake-stack").dataset.count;
-      }
+      for (const b of el.querySelectorAll(".stake-count")) b.style.visibility = "";
     }
     els.sprites.replaceChildren();
   }
@@ -130,9 +128,9 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
   // The seat ring is fitted to the felt actually on screen, so pods never
   // hang over the rail at phone widths. fitRadii is an exact maximal fit,
-  // which would leave pod corners sitting right on the rail; the clearance
-  // is added here so they sit visibly inside it.
-  const POD_CLEARANCE = 10;
+  // which would leave pod corners sitting right on the rail; this much
+  // clearance per side is added here so they sit visibly inside it.
+  const POD_CLEARANCE = 5;
   let ring = { rx: 44, ry: 42 };
   function measureRing() {
     const box = els.table.getBoundingClientRect();
@@ -142,7 +140,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     const podH = parseFloat(css.getPropertyValue("--pod-h")) || 52;
     const next = fitRadii({
       tableW: box.width, tableH: box.height,
-      podW: podW + POD_CLEARANCE, podH: podH + POD_CLEARANCE, railPx: 15
+      podW: podW + POD_CLEARANCE * 2, podH: podH + POD_CLEARANCE * 2, railPx: 15
     });
     if (next.rx === ring.rx && next.ry === ring.ry) return false;
     ring = next;
@@ -754,9 +752,11 @@ export function createTable({ send, roomCode, toast, audio }) {
         els.dock.inert = true;
         audio.play("dealin");
         runTimeline((ctx) => bonusRoundTimeline(ctx, handle, next).finally(() => {
+          // Always release the dock, but only take focus if this timeline is
+          // still the current one: cancellation runs finally() too.
           els.dock.classList.remove("pending");
           els.dock.inert = false;
-          els.bidInput.focus({ preventScroll: true });
+          if (ctx.alive()) els.bidInput.focus({ preventScroll: true });
         }));
         break;
       case "bidding":
@@ -800,23 +800,27 @@ export function createTable({ send, roomCode, toast, audio }) {
     ringObserver.disconnect();
     chromeObserver.disconnect();
     teardown.abort();
+    if (els.logSheet.open) els.logSheet.close();
     anim.cancelAll();
     resetTransient();
   }
 
   initLobbyControls(els, { send, roomCode, toast });
-  els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidInput));
-  els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidRange));
+  // Same teardown as the log sheet: these sit on static DOM that outlives the
+  // table, so without the signal a rejoin would leave a second set attached
+  // and every bid or Play again would be sent twice.
+  els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidInput), on);
+  els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidRange), on);
   const step = (delta) => {
     audio.play("tap");
     setDraftAmount(draft.amount + delta);
   };
-  els.bidDownBtn.addEventListener("click", () => step(-1));
-  els.bidUpBtn.addEventListener("click", () => step(1));
-  els.lockBtn.addEventListener("click", lockBid);
-  els.logBidsBtn.addEventListener("click", () => setLogMode("bids"));
-  els.logPayoutsBtn.addEventListener("click", () => setLogMode("payouts"));
-  els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }));
+  els.bidDownBtn.addEventListener("click", () => step(-1), on);
+  els.bidUpBtn.addEventListener("click", () => step(1), on);
+  els.lockBtn.addEventListener("click", lockBid, on);
+  els.logBidsBtn.addEventListener("click", () => setLogMode("bids"), on);
+  els.logPayoutsBtn.addEventListener("click", () => setLogMode("payouts"), on);
+  els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }), on);
 
   return { render, dispose, setConnected, els, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, isConnected: () => connected };
 }

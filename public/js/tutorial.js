@@ -327,7 +327,7 @@ const SLIDES = [
         badge.className = "delta-badge " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero");
         badge.textContent = fmt(d);
         m.seatEls[i].append(badge);
-        ctx.animate(badge, [{ transform: "translate(-50%, 0) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: 150, easing: "ease-out" }).catch(() => {});
+        ctx.animate(badge, [{ transform: "translate(-50%, -50%) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, -50%) scale(1)", opacity: 1 }], { duration: 150, easing: "ease-out" }).catch(() => {});
         return badge;
       });
       try {

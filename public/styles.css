@@ -180,8 +180,11 @@ label { font-size: 0.85rem; color: var(--muted); }
 .seat-stakes { position: absolute; display: flex; gap: 4px; pointer-events: none; }
 .seat[data-face="up"] .seat-stakes { bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
 .seat[data-face="down"] .seat-stakes { top: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
-.seat[data-face="right"] .seat-stakes { left: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
-.seat[data-face="left"] .seat-stakes { right: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
+/* Side seats sit level with the deck and reference card, so fanning their
+   cards inward would lay them across the middle of the table. They fan
+   downward instead - still on the felt, still in front of the player. */
+.seat[data-face="right"] .seat-stakes,
+.seat[data-face="left"] .seat-stakes { top: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
 .stake-stack { position: relative; height: var(--stake-h); width: var(--stake-w); flex: none; }
 .stake-card {
   position: absolute; top: 0; width: var(--stake-w); height: var(--stake-h);
@@ -206,7 +209,10 @@ label { font-size: 0.85rem; color: var(--muted); }
 .bid-tag { position: absolute; left: 50%; transform: translateX(-50%); top: -20px; padding: 2px 8px; border-radius: 6px; background: var(--card-face); color: var(--black); font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; font-size: 0.9rem; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
 .seat.buyer .bid-tag { background: var(--gold); }
 .seat-remove { position: absolute; top: -4px; right: 6px; width: 20px; height: 20px; border-radius: 50%; border: none; background: var(--bad); color: #fff; font-size: 0.8rem; line-height: 20px; padding: 0; cursor: pointer; }
-.delta-badge { position: absolute; left: 50%; top: calc(100% - 8px); transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1rem; font-weight: 800; background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); z-index: 3; }
+/* The round delta sits ON the pod. Anywhere outside it collides with either
+   the owned cards (centre side) or the bid tag (outer side), and it is a
+   transient headline number, so overlaying reads fine. */
+.delta-badge { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 3px 10px; border-radius: 999px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1rem; font-weight: 800; background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); z-index: 3; }
 .delta-badge.pos { color: var(--good); }
 .delta-badge.neg { color: var(--bad); }
 .delta-badge.zero { color: var(--muted); }

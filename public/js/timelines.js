@@ -296,15 +296,20 @@ export async function revealBidsTimeline(ctx, t, state) {
     await ctx.until(Promise.all(landings.map(async (landing) => {
       const copy = ctx.spawn(`card small ${last.reference}`, SUIT_SYMBOLS[last.reference]);
       ctx.put(copy, slot);
-      await ctx.fly(copy, slot, ctx.centre(landing.stack), CARD_TO_BUYER_MS, { arc: 26, scale });
-      if (!ctx.alive()) return;
-      copy.remove();
-      landing.stack.dataset.count = String(landing.after);
-      if (landing.wholeStack) landing.stack.style.visibility = "";
-      if (landing.card) landing.card.style.visibility = "";
-      if (landing.badge) {
-        landing.badge.textContent = String(landing.after);
-        landing.badge.style.visibility = "";
+      try {
+        await ctx.fly(copy, slot, ctx.centre(landing.stack), CARD_TO_BUYER_MS, { arc: 26, scale });
+      } finally {
+        // Restore whether or not the flight finished. A cancelled run would
+        // otherwise leave a first stake hidden, or a capped stack's badge one
+        // short, until the next full redraw.
+        copy.remove();
+        landing.stack.dataset.count = String(landing.after);
+        landing.stack.style.visibility = "";
+        if (landing.card) landing.card.style.visibility = "";
+        if (landing.badge) {
+          landing.badge.textContent = String(landing.after);
+          landing.badge.style.visibility = "";
+        }
       }
     })));
   }
@@ -389,7 +394,7 @@ export async function revealCardTimeline(ctx, t, state) {
     badge.textContent = fmtDelta(d);
     t.seatEl(id).append(badge);
     badges.push(badge);
-    ctx.animate(badge, [{ transform: "translate(-50%, 0) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
+    ctx.animate(badge, [{ transform: "translate(-50%, -50%) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, -50%) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
   }
   try {
     await ctx.wait(DELTA_IN_MS + DELTA_HOLD_MS);
