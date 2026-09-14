@@ -19,7 +19,7 @@ function miniTable() {
     seat.className = "seat" + (i === 0 ? " you" : "");
     seat.style.left = `${positions[i].x}%`;
     seat.style.top = `${positions[i].y}%`;
-    seat.innerHTML = `<div class="bid-tag" hidden></div><div class="avatar" style="--seat-color: var(--seat-${i + 1})">${name[0]}</div><div class="seat-stack"></div><div class="seat-name">${name}</div><div class="seat-score"><span class="score-num">0</span></div><div class="seat-stakes"></div>`;
+    seat.innerHTML = `<div class="bid-tag" hidden></div><div class="avatar" style="--seat-color: var(--seat-${i + 1})">${name[0]}</div><div class="seat-name">${name}</div><div class="seat-score"><span class="score-num">0</span></div><div class="seat-stakes"></div>`;
     seats.append(seat);
     return seat;
   });
@@ -43,7 +43,6 @@ function miniTable() {
     price: centre.querySelector(".price-badge"),
     tag: (i) => seatEls[i].querySelector(".bid-tag"),
     avatar: (i) => seatEls[i].querySelector(".avatar"),
-    stack: (i) => seatEls[i].querySelector(".seat-stack"),
     stakes: (i) => seatEls[i].querySelector(".seat-stakes"),
     score: (i, v) => {
       const el = seatEls[i].querySelector(".score-num");
@@ -143,14 +142,35 @@ async function showTag(ctx, m, i, value, gold) {
   await ctx.animate(tag, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
 }
 
-// A suit chip lands on a seat's stake row, the way the live table shows a
-// bought suit.
+// One stack of owned cards per suit, the same shape the live table builds.
+export function stakeStack(suit, count) {
+  const stack = document.createElement("div");
+  stack.className = "stake-stack";
+  stack.dataset.suit = suit;
+  stack.dataset.count = String(count);
+  const edges = Math.min(4, count);
+  for (let i = 0; i < edges; i++) {
+    const card = document.createElement("div");
+    card.className = `stake-card ${suit}`;
+    card.style.left = `calc(var(--stake-w) * ${(i * 0.7).toFixed(2)})`;
+    card.textContent = i === edges - 1 ? SUIT_SYMBOLS[suit] : "";
+    stack.append(card);
+  }
+  stack.style.width = `calc(var(--stake-w) * ${(1 + (edges - 1) * 0.7).toFixed(2)})`;
+  if (count > 1) {
+    const badge = document.createElement("span");
+    badge.className = "stake-count";
+    badge.textContent = String(count);
+    stack.append(badge);
+  }
+  return stack;
+}
+
+// A bought suit lands on a seat's stake row, the way the live table shows it.
 async function landStake(ctx, m, i, suit) {
-  const chip = document.createElement("span");
-  chip.className = `stake-chip ${suit}`;
-  chip.textContent = SUIT_SYMBOLS[suit];
-  m.stakes(i).replaceChildren(chip);
-  await ctx.animate(chip, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: 0.7 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
+  const stack = stakeStack(suit, 1);
+  m.stakes(i).replaceChildren(stack);
+  await ctx.animate(stack, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: 0.7 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
 }
 
 function flashPay(ctx, m) {
@@ -398,12 +418,7 @@ export function createTutorial(dialog, { audio }) {
         tag.hidden = false;
         tag.textContent = String(bids[name]);
         m.stakes(i).replaceChildren();
-        if (buyer) {
-          const chip = document.createElement("span");
-          chip.className = "stake-chip hearts";
-          chip.textContent = SUIT_SYMBOLS.hearts;
-          m.stakes(i).append(chip);
-        }
+        if (buyer) m.stakes(i).append(stakeStack("hearts", 1));
         m.score(i, d);
       });
       m.price.hidden = false;

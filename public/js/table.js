@@ -3,7 +3,7 @@ import { createAnim } from "./anim.js";
 import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline } from "./timelines.js";
 
 const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS } = window.GameCore;
-const { seatPositions } = window.SeatLayout;
+const { seatPositions, fitRadii, podFace } = window.SeatLayout;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -74,7 +74,11 @@ export function createTable({ send, roomCode, toast, audio }) {
       avatar.classList.remove("peek");
       avatar.style.opacity = "";
       for (const b of el.querySelectorAll(".delta-badge")) b.remove();
-      for (const c of el.querySelectorAll(".stake-chip")) c.style.visibility = "";
+      for (const c of el.querySelectorAll(".stake-card")) c.style.visibility = "";
+      for (const b of el.querySelectorAll(".stake-count")) {
+        b.style.visibility = "";
+        b.textContent = b.closest(".stake-stack").dataset.count;
+      }
     }
     els.sprites.replaceChildren();
   }
@@ -125,6 +129,32 @@ export function createTable({ send, roomCode, toast, audio }) {
   function seatColor(index) {
     return `var(--seat-${(index % 6) + 1})`;
   }
+  // The seat ring is fitted to the felt actually on screen, so pods never
+  // hang over the rail at phone widths. fitRadii is an exact maximal fit,
+  // which would leave pod corners sitting right on the rail; the clearance
+  // is added here so they sit visibly inside it.
+  const POD_CLEARANCE = 10;
+  let ring = { rx: 44, ry: 42 };
+  function measureRing() {
+    const box = els.table.getBoundingClientRect();
+    if (!box.width || !box.height) return false;
+    const css = getComputedStyle(document.documentElement);
+    const podW = parseFloat(css.getPropertyValue("--pod-w")) || 92;
+    const podH = parseFloat(css.getPropertyValue("--pod-h")) || 52;
+    const next = fitRadii({
+      tableW: box.width, tableH: box.height,
+      podW: podW + POD_CLEARANCE, podH: podH + POD_CLEARANCE, railPx: 15
+    });
+    if (next.rx === ring.rx && next.ry === ring.ry) return false;
+    ring = next;
+    return true;
+  }
+
+  const ringObserver = new ResizeObserver(() => {
+    if (measureRing() && state) renderSeats();
+  });
+  ringObserver.observe(els.table);
+
   function place(el, pos) {
     el.style.left = `${pos.x}%`;
     el.style.top = `${pos.y}%`;
@@ -146,8 +176,6 @@ export function createTable({ send, roomCode, toast, audio }) {
       mark.setAttribute("aria-hidden", "true");
       avatar.append(mark);
     }
-    const stack = document.createElement("div");
-    stack.className = "seat-stack";
     const name = document.createElement("div");
     name.className = "seat-name";
     const score = document.createElement("div");
@@ -168,7 +196,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     remove.textContent = "×";
     remove.hidden = true;
     remove.addEventListener("click", () => send({ type: "remove-bot", playerId: p.id }));
-    el.append(tag, avatar, stack, name, score, stakes, status, remove);
+    el.append(tag, avatar, name, score, stakes, status, remove);
     return el;
   }
 
@@ -188,22 +216,49 @@ export function createTable({ send, roomCode, toast, audio }) {
     for (const st of state.stakes || []) if (st.buyers.includes(id)) out[st.suit] += 1;
     return out;
   }
+  // One stack of real cards per suit owned. Up to STACK_EDGES overlapping
+  // edges, then a count badge: seven spades read as four edges and a "7",
+  // never as seven cards of width.
+  // Visible edges per stack, by how many suits are held. Four suits at four
+  // edges each would be ~210px against a 92px pod, so the row tightens as it
+  // fills; the count badge always carries the true number either way.
+  const STACK_EDGES = [4, 3, 2, 1];
+  const STACK_STEP = 0.7;
   function renderStakeRow(el, id) {
     const owned = ownedStakes(id);
+    const suits = SUITS.filter((s) => owned[s] > 0);
     const row = el.querySelector(".seat-stakes");
-    row.replaceChildren(...SUITS.filter((s) => owned[s] > 0).map((s) => {
-      const chip = document.createElement("span");
-      chip.className = `stake-chip ${s}`;
-      chip.textContent = owned[s] > 1 ? `${SUIT_SYMBOLS[s]}×${owned[s]}` : SUIT_SYMBOLS[s];
-      return chip;
+    row.replaceChildren(...suits.map((s) => {
+      const stack = document.createElement("div");
+      stack.className = "stake-stack";
+      stack.dataset.suit = s;
+      stack.dataset.count = String(owned[s]);
+      const edges = Math.min(STACK_EDGES[suits.length - 1], owned[s]);
+      for (let i = 0; i < edges; i++) {
+        const card = document.createElement("div");
+        card.className = `stake-card ${s}`;
+        // Offsets are card widths, not stack widths: the stack is wider
+        // than one card, so a percentage here would spread them far apart.
+        card.style.left = `calc(var(--stake-w) * ${(i * STACK_STEP).toFixed(2)})`;
+        card.textContent = i === edges - 1 ? SUIT_SYMBOLS[s] : "";
+        stack.append(card);
+      }
+      stack.style.width = `calc(var(--stake-w) * ${(1 + (edges - 1) * STACK_STEP).toFixed(2)})`;
+      if (owned[s] > 1) {
+        const badge = document.createElement("span");
+        badge.className = "stake-count";
+        badge.textContent = String(owned[s]);
+        stack.append(badge);
+      }
+      return stack;
     }));
-    return SUITS.filter((s) => owned[s] > 0).map((s) => (owned[s] > 1 ? `${s} ×${owned[s]}` : s)).join(", ");
+    return suits.map((s) => `${owned[s]} ${s}`).join(", ");
   }
 
   function renderSeats() {
     const players = orderedPlayers(state);
     const lobby = state.phase === "lobby";
-    const positions = seatPositions(lobby ? MAX_PLAYERS : Math.max(1, players.length));
+    const positions = seatPositions(lobby ? MAX_PLAYERS : Math.max(1, players.length), ring);
     const scores = {};
     for (const p of state.players) scores[p.id] = p.score;
     const last = state.history[state.history.length - 1];
@@ -218,6 +273,7 @@ export function createTable({ send, roomCode, toast, audio }) {
       }
       keep.add(p.id);
       place(el, positions[i]);
+      el.dataset.face = podFace(positions[i]);
       el.classList.toggle("you", p.id === state.you);
       el.classList.toggle("away", !p.connected);
       el.classList.toggle("buyer", Boolean(inReveal && last.buyers.includes(p.id)));
@@ -246,7 +302,11 @@ export function createTable({ send, roomCode, toast, audio }) {
     }
     for (const e of els.seats.querySelectorAll(".seat.empty")) e.remove();
     if (lobby) {
-      for (let i = players.length; i < MAX_PLAYERS; i++) els.seats.append(emptySeat(positions[i], false, send));
+      for (let i = players.length; i < MAX_PLAYERS; i++) {
+        const seat = emptySeat(positions[i], false, send);
+        seat.dataset.face = podFace(positions[i]);
+        els.seats.append(seat);
+      }
     }
   }
 
@@ -624,6 +684,7 @@ export function createTable({ send, roomCode, toast, audio }) {
   function dispose() {
     stopRing();
     clearTimeout(bidSendTimer);
+    ringObserver.disconnect();
     anim.cancelAll();
     resetTransient();
   }
