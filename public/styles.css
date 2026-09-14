@@ -388,7 +388,7 @@ label { font-size: 0.85rem; color: var(--muted); }
    felt (badges included), the same as on the live table. Reserve that much
    room so nothing lands on the stepper or the caption. */
 .tut-stage { display: flex; justify-content: center; min-height: 260px; padding-bottom: 44px; }
-.mini-table { width: 100%; max-width: 420px; aspect-ratio: 16 / 11; }
+.mini-table { width: 100%; height: auto; max-width: 420px; max-height: none; aspect-ratio: 16 / 11; }
 .mini-table { --pod-w: 78px; --pod-h: 44px; --stake-w: 13px; --stake-h: 19px; }
 .mini-table .seat .avatar { width: 30px; height: 30px; font-size: 0.85rem; }
 .mini-table .seat-name { font-size: 0.68rem; }
@@ -421,4 +421,6 @@ label { font-size: 0.85rem; color: var(--muted); }
 .calc-delta.neg { color: var(--bad); }
 .calc-delta.zero { color: var(--muted); }
 .calc-note { text-align: center; color: var(--muted); margin: 0; }
+.calc-fixed { color: var(--muted); }
+.tut-instruction { text-align: center; color: var(--gold-2); font-size: 0.9rem; font-weight: 700; margin: 0 0 6px; }
 @media (max-width: 640px) { .tut-stage { flex-direction: column; align-items: center; } }

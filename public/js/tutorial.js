@@ -3,7 +3,7 @@ import { createAnim } from "./anim.js";
 import { holdSpot, setAside, COMPARE_MS } from "./timelines.js";
 
 const { settlePurchase, settleFlip, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, CARD_PAYOUT, RUNOUT_MULTIPLIER } = window.GameCore;
-const { seatPositions } = window.SeatLayout;
+const { seatPositions, podFace } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
 
@@ -19,6 +19,8 @@ function miniTable() {
     seat.className = "seat" + (i === 0 ? " you" : "");
     seat.style.left = `${positions[i].x}%`;
     seat.style.top = `${positions[i].y}%`;
+    // Same rule as the live table: cards fan toward the middle.
+    seat.dataset.face = podFace(positions[i]);
     seat.innerHTML = `<div class="bid-tag" hidden></div><div class="avatar" style="--seat-color: var(--seat-${i + 1})">${name[0]}</div><div class="seat-name">${name}</div><div class="seat-score"><span class="score-num">0</span></div><div class="seat-stakes"></div>`;
     seats.append(seat);
     return seat;
@@ -199,7 +201,7 @@ async function heartPays(ctx, m, quick) {
 const POOL = SUITS.length * POOL_PER_SUIT;
 const SLIDES = [
   {
-    caption: "Each round you bid for the suit on top. Own it, and every later flip of that suit pays you 10 from each player who sold it to you. The last five cards skip the auction and pay double. Most chips when the deck runs out wins.",
+    caption: "Each round you bid for the suit on top. Own it, and every later flip of that suit pays you 10 from each player who sold it to you. Most chips when the deck runs out wins.",
     async run(ctx, m) {
       m.refSlot.replaceChildren(cardEl("hearts", "big"));
       await ctx.wait(400);
@@ -292,10 +294,9 @@ const SLIDES = [
     }
   },
   {
-    caption: "You pay each player their bid. Every later heart pays you 10 from each of them, and 20 in the last five cards. The dock reads your bid back as cards.",
-    controls: true,
-    async run(ctx, m, opts) {
-      const n = opts.hearts;
+    caption: "You pay each player their own bid. Every later heart then pays you 10 from each of them. The dock stacks a chip for every 10 you bid.",
+    async run(ctx, m) {
+      const n = 2;
       m.refSlot.replaceChildren(cardEl("hearts", "big"));
       for (const [i, v] of [[0, 80], [1, 50], [2, 20]]) {
         const tag = m.tag(i);
@@ -337,8 +338,26 @@ const SLIDES = [
     }
   },
   {
-    caption: "Move the bids. Notice who wins the suit and who wins the money.",
-    calculator: true
+    caption: "Drag a bid and watch who wins the suit — and who wins the money.",
+    instruction: "Drag any bid.",
+    calculator: { sliders: true }
+  },
+  {
+    caption: "The more hearts still to come, the more the suit is worth. Bid above that and you have overpaid.",
+    instruction: "Set how many hearts are still to come.",
+    calculator: { stepper: true }
+  },
+  {
+    caption: "The last five cards are the bonus round: no auction, and every payout doubles. Suits you already own keep paying — twice as much.",
+    async run(ctx, m) {
+      m.table.classList.add("bonus");
+      m.refSlot.replaceChildren(cardEl("hearts", "big"));
+      await ctx.wait(300);
+      await landStake(ctx, m, 0, "hearts");
+      await ctx.wait(400);
+      await heartPays(ctx, m, false);
+      await ctx.wait(1400);
+    }
   }
 ];
 
@@ -347,13 +366,6 @@ export function createTutorial(dialog, { audio }) {
     <div class="tut">
       <button type="button" class="icon-btn tut-close" aria-label="Close">×</button>
       <div class="tut-stage"></div>
-      <div class="tut-controls" hidden>
-        <label class="tut-stepper">hearts to come
-          <button type="button" class="step-btn" data-step="-1" aria-label="One fewer heart">−</button>
-          <output>4</output>
-          <button type="button" class="step-btn" data-step="1" aria-label="One more heart">+</button>
-        </label>
-      </div>
       <p class="tut-caption" aria-live="polite"></p>
       <div class="tut-nav">
         <button type="button" class="chip-btn tut-back">Back</button>
@@ -363,14 +375,12 @@ export function createTutorial(dialog, { audio }) {
     </div>`;
   const stage = dialog.querySelector(".tut-stage");
   const caption = dialog.querySelector(".tut-caption");
-  const controls = dialog.querySelector(".tut-controls");
   const dots = dialog.querySelector(".tut-dots");
   const back = dialog.querySelector(".tut-back");
   const next = dialog.querySelector(".tut-next");
   let index = 0;
   let opener = null;
   let anim = null;
-  let hearts = 4;
 
   for (let i = 0; i < SLIDES.length; i++) {
     const dot = document.createElement("button");
@@ -384,28 +394,36 @@ export function createTutorial(dialog, { audio }) {
   // Last slide: the mini table stays on screen and reflects the sliders live
   // (buyer glow, bid tags, winning-bid badge, stake chip, scores), with the
   // calculator below. Net = purchase + N later hearts, N from the stepper.
-  function renderCalculator(m) {
+  function renderCalculator(m, opts) {
     const wrap = document.createElement("div");
     wrap.className = "calc";
     m.refSlot.replaceChildren(cardEl("hearts", "big"));
+    const showSliders = Boolean(opts.sliders);
     const rows = NAMES.map((name, i) => {
       const row = document.createElement("div");
       row.className = "calc-row";
-      row.innerHTML = `<span class="calc-name">${name}</span><input type="range" min="0" max="100" value="${[80, 50, 20][i]}" aria-label="${name} bid"><span class="calc-bid mono"></span><span class="calc-delta mono"></span>`;
+      const bid = [80, 50, 20][i];
+      row.innerHTML = showSliders
+        ? `<span class="calc-name">${name}</span><input type="range" min="0" max="100" value="${bid}" aria-label="${name} bid"><span class="calc-bid mono"></span><span class="calc-delta mono"></span>`
+        : `<span class="calc-name">${name}</span><span class="calc-fixed mono">bid ${bid}</span><span class="calc-bid mono"></span><span class="calc-delta mono"></span>`;
+      row.dataset.bid = String(bid);
       wrap.append(row);
       return row;
     });
     const stepper = document.createElement("label");
     stepper.className = "tut-stepper";
-    stepper.innerHTML = `hearts to come <button type="button" class="step-btn" data-step="-1" aria-label="One fewer heart">−</button><output>4</output><button type="button" class="step-btn" data-step="1" aria-label="One more heart">+</button>`;
+    stepper.innerHTML = `hearts still to come <button type="button" class="step-btn" data-step="-1" aria-label="One fewer heart">−</button><output>4</output><button type="button" class="step-btn" data-step="1" aria-label="One more heart">+</button>`;
     const note = document.createElement("p");
     note.className = "calc-note mono";
-    wrap.append(stepper, note);
+    note.setAttribute("aria-live", "polite");
+    if (opts.stepper) wrap.append(stepper);
+    wrap.append(note);
     let later = 4;
     const update = () => {
       const bids = {};
       rows.forEach((row, i) => {
-        bids[NAMES[i]] = Number(row.querySelector("input").value);
+        const input = row.querySelector("input");
+        bids[NAMES[i]] = Number(input ? input.value : row.dataset.bid);
         row.querySelector(".calc-bid").textContent = String(bids[NAMES[i]]);
       });
       const r = settlePurchase(bids);
@@ -430,9 +448,28 @@ export function createTutorial(dialog, { audio }) {
       m.price.hidden = false;
       m.price.textContent = r.void ? "no trade" : `${SUIT_SYMBOLS.hearts} ${r.topBid}`;
       m.price.classList.toggle("void", r.void);
-      note.textContent = r.void ? "no trade" : `${r.buyers.join(" & ")} ${r.buyers.length > 1 ? "buy" : "buys"} hearts; ${later} more heart${later === 1 ? "" : "s"} pay${later === 1 ? "s" : ""} ${CARD_PAYOUT} each, ${CARD_PAYOUT * RUNOUT_MULTIPLIER} in the last five`;
+      // A buyer pays every seller that seller's own bid, and then collects
+      // CARD_PAYOUT from each of them per later heart. Break-even is the
+      // cost divided by that per-card total - not by CARD_PAYOUT alone.
+      const cost = r.sellers.reduce((sum, name) => sum + bids[name], 0);
+      const perCard = CARD_PAYOUT * r.sellers.length;
+      if (r.void) {
+        note.textContent = "Everyone bid the same, so there is no trade.";
+      } else if (showSliders) {
+        const breakEven = perCard > 0 ? Math.ceil(cost / perCard) : 0;
+        // "You" takes the second person however many buyers there are.
+        const verb = r.buyers.length > 1 || r.buyers.includes("You") ? "buy" : "buys";
+        note.textContent = `${r.buyers.join(" & ")} ${verb} hearts for ${cost}. `
+          + `Each later heart pays ${perCard}, so ${breakEven} heart${breakEven === 1 ? "" : "s"} break${breakEven === 1 ? "s" : ""} even.`;
+      } else {
+        const worth = later * perCard;
+        note.textContent = `${later} heart${later === 1 ? "" : "s"} to come × ${perCard} = the suit is worth ${worth} to ${r.buyers.join(" & ")}, who paid ${cost}.`;
+      }
     };
-    for (const row of rows) row.querySelector("input").addEventListener("input", update);
+    for (const row of rows) {
+      const input = row.querySelector("input");
+      if (input) input.addEventListener("input", update);
+    }
     const out = stepper.querySelector("output");
     for (const btn of stepper.querySelectorAll("button")) {
       btn.addEventListener("click", () => {
@@ -451,18 +488,23 @@ export function createTutorial(dialog, { audio }) {
     if (anim) anim.cancelAll();
     stage.replaceChildren();
     caption.textContent = slide.caption;
-    controls.hidden = !slide.controls;
     back.disabled = index === 0;
     next.textContent = index === SLIDES.length - 1 ? "Done" : "Next";
     [...dots.children].forEach((d, k) => d.setAttribute("aria-current", String(k === index)));
     const m = miniTable();
     stage.append(m.table);
     if (slide.calculator) {
-      stage.append(renderCalculator(m));
+      if (slide.instruction) {
+        const tip = document.createElement("p");
+        tip.className = "tut-instruction";
+        tip.textContent = slide.instruction;
+        stage.append(tip);
+      }
+      stage.append(renderCalculator(m, slide.calculator));
       return;
     }
     anim = createAnim(m.sprites);
-    anim.run((ctx) => slide.run(ctx, m, { hearts })).catch((err) => {
+    anim.run((ctx) => slide.run(ctx, m)).catch((err) => {
       console.error("[tutorial] slide failed:", err);
     });
   }
@@ -483,14 +525,6 @@ export function createTutorial(dialog, { audio }) {
   back.addEventListener("click", () => show(index - 1));
   next.addEventListener("click", () => (index === SLIDES.length - 1 ? close() : show(index + 1)));
   dialog.querySelector(".tut-close").addEventListener("click", close);
-  const stepperOut = controls.querySelector("output");
-  for (const btn of controls.querySelectorAll("button")) {
-    btn.addEventListener("click", () => {
-      hearts = Math.max(1, Math.min(9, hearts + Number(btn.dataset.step)));
-      stepperOut.value = String(hearts);
-      show(index);
-    });
-  }
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) close();
   });
