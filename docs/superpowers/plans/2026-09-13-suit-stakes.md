@@ -22,6 +22,7 @@
 - Run tests from `C:/dev/follow-suit` with `npm test` (no watch mode). The fair-value Monte Carlo test takes a few seconds.
 - Commit after every task with a one-line message in the existing `feat:`/`test:` style, no trailers.
 - Work happens on the `suit-stakes` branch in the worktree at `C:/dev/follow-suit-worktrees/suit-stakes` (created before Task 1; `npm ci` has been run there).
+- Every shell command in this plan is written for the Bash tool (Git Bash), so `&&`, `VAR=value cmd`, and `/dev/null` are correct as written. Do not translate them to PowerShell.
 
 ---
 
@@ -234,7 +235,7 @@ Update the export block to:
 - [ ] **Step 4: Run the tests**
 
 Run: `node --test tests/game-core.test.js`
-Expected: PASS, all tests.
+Expected: PASS, all tests. The full suite is broken from here until Task 4 lands: `lib/game.js` still imports `settle`, so `tests/game.test.js`, `tests/snapshot.test.js`, and `tests/server.test.js` fail with `settle is not a function`. That is expected; do not patch `lib/game.js` in this task.
 
 - [ ] **Step 5: Commit**
 
@@ -557,6 +558,40 @@ test("a void auction buys nothing but older stakes still pay on its flip", () =>
 });
 ```
 
+Add after the void test:
+
+```js
+test("an older stake pays on a flip of its suit while the current reference is another suit", () => {
+  const { clock, game } = setup();
+  // The state machine only reads the deck, so hand-build one: spades on top,
+  // then a heart, then a spade, then the rest.
+  game.deck = ["spades", "hearts", "spades", ...Array(17).fill("hearts")];
+  assert.equal(game.reference(), "spades");
+  game.bid("p1", { auction: 1, amount: 40, locked: true });
+  game.bid("p2", { auction: 1, amount: 10, locked: true });
+  clock.advance(CONFIG.revealBidsMs);
+  assert.equal(game.history[0].flipped, "hearts");
+  assert.equal(game.history[0].hits, 0, "a heart pays no spades stake");
+  assert.deepEqual(game.history[0].deltas, { p1: -10, p2: 10 });
+  clock.advance(CONFIG.revealCardMs);
+  assert.equal(game.auction.index, 2);
+  assert.equal(game.reference(), "hearts");
+  game.bid("p1", { auction: 2, amount: 5, locked: true });
+  game.bid("p2", { auction: 2, amount: 30, locked: true });
+  assert.deepEqual(game.stakes.map((st) => st.suit), ["spades", "hearts"]);
+  clock.advance(CONFIG.revealBidsMs);
+  const entry = game.history[1];
+  assert.equal(entry.flipped, "spades");
+  assert.equal(entry.hits, 1, "the spades stake from auction 1 pays although hearts is the reference");
+  assert.deepEqual(entry.payouts, [{ from: "p2", to: "p1", amount: 10 }]);
+  // purchase: p2 bought hearts and paid p1's bid of 5; payout: p2 pays p1 10 on the spade.
+  assert.deepEqual(entry.purchase, { p1: 5, p2: -5 });
+  assert.deepEqual(entry.deltas, { p1: 15, p2: -15 });
+  assert.equal(game.players[0].score, -10 + 15);
+  assert.equal(game.players[1].score, 10 - 15);
+});
+```
+
 In `the last auction leads to results with hands revealed and no pending timers` (lines 239-250) add after `assert.equal(game.history.length, 19);`:
 
 ```js
@@ -573,7 +608,7 @@ In `two consecutive full games in one instance share no state` add `assert.deepE
 - [ ] **Step 3: Run to see them fail**
 
 Run: `node --test tests/game.test.js tests/config.test.js`
-Expected: FAIL (`settle` import broken: `settlePurchase is not a function`, `stakes` undefined, config default 5000).
+Expected: FAIL (`lib/game.js` still destructures `settle`, which no longer exists, so every game test throws; the config test fails on the default 5000).
 
 - [ ] **Step 4: Implement**
 
@@ -782,7 +817,7 @@ Expected: PASS.
 - [ ] **Step 5: Run the whole server-side suite**
 
 Run: `npm test`
-Expected: `tests/transitions.test.js` fails (Task 6). Everything else passes, including `tests/server.test.js` unchanged.
+Expected: PASS, every file. `tests/transitions.test.js` still passes at this point because `public/transitions.js` and its tests are untouched until Task 6; they test the old protocol, which Task 6 replaces.
 
 - [ ] **Step 6: Commit**
 
@@ -955,7 +990,13 @@ git commit -m "feat: legBaseline and seller-priced streams in transitions"
 
 - [ ] **Step 1: Markup and styles**
 
-`public/index.html`: inside `<div class="bid-row">`, after the `+1` button, add:
+`public/index.html`: change the meta description on line 9 to:
+
+```html
+  <meta name="description" content="Follow Suit: a multiplayer card auction. Bid for the suit on top; every later flip of it pays the owner.">
+```
+
+Inside `<div class="bid-row">`, after the `+1` button, add:
 
 ```html
           <span id="bidHint" class="bid-hint" aria-hidden="true"></span>
@@ -989,7 +1030,7 @@ After `.rail-flash.bad { ... }` add:
 
 - [ ] **Step 2: `table.js` imports, elements, transient reset**
 
-Line 5-7 and 10 become:
+Replace lines 5-11 (from the `window.GameCore` destructure through the `MEDALS` line) as one block with:
 
 ```js
 const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue } = window.GameCore;
@@ -999,7 +1040,7 @@ const RING_LENGTH = 282.7;
 const MEDALS = ["🥇", "🥈", "🥉"];
 ```
 
-(delete the `displayScores` destructure and `DEFAULT_BID`.)
+(so the `displayScores` destructure and `DEFAULT_BID` are gone and nothing is declared twice.)
 
 In `els` add `bidHint: $("bidHint"),` after `bidUpBtn: $("bidUpBtn"),`.
 
@@ -1194,10 +1235,10 @@ export async function revealBidsTimeline(ctx, t, state) {
   // Let the bids sink in before the chips move.
   await ctx.wait(BIDS_PAUSE_MS);
   await payStreams(ctx, t, paymentStreams(last, "bids"), fromScores, toScores);
-  for (const chip of newChips) {
-    audio.play("tag");
-    pop(ctx, chip).catch(() => {});
-  }
+  // Awaited: the sequencer cancels every tracked animation the moment the
+  // timeline returns, so an un-awaited pop would never be seen.
+  if (newChips.length) audio.play("tag");
+  await ctx.until(Promise.all(newChips.map((chip) => pop(ctx, chip).catch(() => {}))));
 }
 ```
 
@@ -1242,8 +1283,12 @@ with:
     ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
   }
   const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
-  t.announce(`${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.join(", ")}`);
+  const mine = (last.deltas && last.deltas[state.you]) || 0;
+  const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
+  t.announce(`${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.join(", ")}. ${you}`);
 ```
+
+The live region is rewritten by every `announce`, so the round's personal result is folded into this one sentence. Delete the two later lines that declared `mine` and announced it (`const mine = ...` and `t.announce(mine === 0 ? ...)` after the badge loop); keep the badge loop itself.
 
 Replace the payout leg:
 
@@ -1265,7 +1310,7 @@ with:
   else for (const id of ids) t.showScore(id, toScores[id]);
 ```
 
-The badge loop, `mine` announcement, and the fade of tags and buyer glow stay as they are (they use `last.deltas`, the net of both legs).
+The badge loop and the fade of tags and buyer glow stay as they are (they use `last.deltas`, the net of both legs). Only the second `mine` announcement goes, as described above.
 
 - [ ] **Step 4: Syntax check, tests, and a headless run**
 
@@ -1565,7 +1610,46 @@ git commit -m "feat: tutorial teaches suit stakes, hearts-to-come stepper in the
 - Modify: `AGENTS.md:8-11`
 - Create (scratch, not committed): `C:/Users/khe61/AppData/Local/Temp/claude/C--dev-follow-suit/ab108ac2-6a5e-4455-9062-2cca4716b4f0/scratchpad/stakes-check.mjs`
 
-- [ ] **Step 1: AGENTS.md**
+- [ ] **Step 1: Full-game socket test**
+
+Append to `tests/server.test.js` (the spawned server runs `DEAL_MS=50`, `BID_MS=4000`, `REVEAL_BIDS_MS=50`, `REVEAL_CARD_MS=50`, so two humans who lock at once finish 19 auctions in a few seconds):
+
+```js
+test("a full two-player game reaches results with scores equal to the sum of round deltas", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const b = await join(room, "Ben");
+  a.send({ type: "start-game" });
+  let s = await a.until((m) => m.type === "state" && m.phase === "bidding" && m.auctionIndex === 1, "auction 1");
+  while (s.phase !== "results") {
+    const k = s.auctionIndex;
+    const before = a.messages.length;
+    a.send({ type: "bid", auction: k, amount: 30, locked: true });
+    b.send({ type: "bid", auction: k, amount: 10, locked: true });
+    s = await a.until((m) => m.type === "state" && (m.phase === "results" || (m.phase === "bidding" && m.auctionIndex === k + 1)), `after auction ${k}`, before);
+  }
+  assert.equal(s.history.length, 19);
+  assert.equal(s.stakes.length, 19);
+  for (const p of s.players) {
+    const total = s.history.reduce((acc, h) => acc + (h.deltas[p.id] || 0), 0);
+    assert.equal(p.score, total, `${p.id} score reconciles with history`);
+  }
+  assert.equal(s.players.reduce((acc, p) => acc + p.score, 0), 0);
+  assert.ok(s.history.every((h) => h.buyers.length === 1 && h.buyers[0] === a.playerId), "Ann outbids Ben every round");
+  a.ws.close();
+  b.ws.close();
+});
+```
+
+Run: `node --test tests/server.test.js`
+Expected: PASS, the new test in a few seconds.
+
+```bash
+git add tests/server.test.js
+git commit -m "test: a full socket game reconciles scores with history deltas"
+```
+
+- [ ] **Step 1b: AGENTS.md**
 
 Replace the first paragraph under `## What this is` with:
 
@@ -1655,6 +1739,7 @@ git commit -m "docs: describe suit stakes in AGENTS.md"
 
 ## Self-review notes
 
-- Spec coverage: 2.2/2.3/2.4 → Tasks 1, 4; 2.5/3.5 → Task 5; 3.1 → Task 1; 3.2/3.6 → Task 4; 3.3 → Task 2; 3.4 → Task 3; 4.1 → Task 6; 4.2/4.3/4.5 → Task 7; 4.4 → Task 8; 4.6/4.7 → Task 9; 4.8 → Task 10; 5 → each task's tests plus Task 10's headless run. The spec's `server` test bullet is satisfied by the existing socket tests passing unchanged (they assert bids, `flipped`, and a zero score sum) plus the sum-of-deltas assertion in `tests/game.test.js`; a 19-auction socket game would take minutes with real timers and is not worth it.
+- Spec coverage: 2.2/2.3/2.4 → Tasks 1, 4; 2.5/3.5 → Task 5; 3.1 → Task 1; 3.2/3.6 → Task 4; 3.3 → Task 2; 3.4 → Task 3; 4.1 → Task 6; 4.2/4.3/4.5 → Task 7; 4.4 → Task 8; 4.6/4.7 → Task 9; 4.8 → Task 10; 5 → each task's tests, the full-game socket test in Task 10, and Task 10's headless run.
+- Codex review of this plan (2026-09-13) fixed: a duplicate-declaration instruction in Task 7, an un-awaited stake-chip pop in Task 8 that the sequencer would have cancelled, an overwritten announcement in Task 8, the missing different-reference stake test in Task 4, the missing socket game in Task 10, the interim-failure notes in Tasks 1, 4, and 5, and the stale meta description.
 - `paymentStreams` takes `(entry, step)`, not `(entry, ids, step)` as the spec wrote: the entry now carries `sellers`, so `ids` had no use.
 - Names used across tasks: `settlePurchase`, `settleFlip`, `priorValue`, `CARD_PAYOUT`, `expectedRemaining`, `legBaseline`, `paymentStreams`, `CARD_TIMELINE_MS`, `.seat-stakes`, `.stake-chip`, `#bidHint`, `.rail-flash.pay`, `topBid`, `hits`, `payouts`, `purchase`.
