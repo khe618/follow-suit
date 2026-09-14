@@ -266,7 +266,9 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.deck.classList.toggle("empty", !lobby && state.cardsRemaining === 0);
     els.deck.style.boxShadow = deckShadow(lobby ? 21 : state.cardsRemaining);
     els.deckCount.textContent = lobby ? "" : String(state.cardsRemaining);
-    els.deckDouble.hidden = lobby || state.cardsRemaining === 0 || state.cardsRemaining > RUNOUT_CARDS;
+    // Stays lit through the last flip and into results (cardsRemaining hits
+    // 0 exactly there); only the deck's own size, or a fresh lobby, hides it.
+    els.deckDouble.hidden = lobby || state.cardsRemaining > RUNOUT_CARDS;
     els.refSlot.replaceChildren();
     if (!lobby && state.reference) els.refSlot.append(cardEl(state.reference, "big"));
     const last = state.history[state.history.length - 1];

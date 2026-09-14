@@ -14,9 +14,10 @@
   // frame instead. Keep in step with timelines.js.
   const DEAL_TIMELINE_MS = 8500;
   // Worst case of the reveal-card timeline in timelines.js: turn, compare
-  // beat, slide, payout streams, badge pop/hold/fade, tag fade. Keep in step
-  // with timelines.js; a Node test checks it against the config default.
-  const CARD_TIMELINE_MS = 4800;
+  // beat, slide, the first-runout pill pop (220 ms), payout streams, badge
+  // pop/hold/fade, tag fade. Keep in step with timelines.js; a Node test
+  // checks it against the config default.
+  const CARD_TIMELINE_MS = 5000;
 
   function transitionKey(s) {
     let key = `${s.matchId}:${s.phase}:${s.revealStep || ""}:${s.auctionIndex || 0}`;

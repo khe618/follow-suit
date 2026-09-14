@@ -2,7 +2,7 @@ import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
 import { holdSpot, setAside, besideSpot, COMPARE_MS, SLIDE_MS } from "./timelines.js";
 
-const { settlePurchase, settleFlip, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, CARD_PAYOUT } = window.GameCore;
+const { settlePurchase, settleFlip, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, CARD_PAYOUT, RUNOUT_MULTIPLIER } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
@@ -268,7 +268,7 @@ const SLIDES = [
     }
   },
   {
-    caption: "You pay each player their bid. Every later heart pays you 10 from each of them, so a bid of 47 says you expect about 4.7 more.",
+    caption: "You pay each player their bid. Every later heart pays you 10 from each of them, and 20 in the last five cards. The dock reads your bid back as cards.",
     controls: true,
     async run(ctx, m, opts) {
       const n = opts.hearts;
@@ -411,7 +411,7 @@ export function createTutorial(dialog, { audio }) {
       m.price.hidden = false;
       m.price.textContent = r.void ? "no trade" : `${SUIT_SYMBOLS.hearts} ${r.topBid}`;
       m.price.classList.toggle("void", r.void);
-      note.textContent = r.void ? "no trade" : `${r.buyers.join(" & ")} ${r.buyers.length > 1 ? "buy" : "buys"} hearts; ${later} more heart${later === 1 ? "" : "s"} pay${later === 1 ? "s" : ""} ${CARD_PAYOUT} each`;
+      note.textContent = r.void ? "no trade" : `${r.buyers.join(" & ")} ${r.buyers.length > 1 ? "buy" : "buys"} hearts; ${later} more heart${later === 1 ? "" : "s"} pay${later === 1 ? "s" : ""} ${CARD_PAYOUT} each, ${CARD_PAYOUT * RUNOUT_MULTIPLIER} in the last five`;
     };
     for (const row of rows) row.querySelector("input").addEventListener("input", update);
     const out = stepper.querySelector("output");

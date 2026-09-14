@@ -57,7 +57,7 @@ Four players, bids A 60, B 60, C 30, D 10 (tie). Purchase: A −40, B −40, C +
 
 Three players, bids A 5, B 0, C 0. Purchase: nothing changes hands. A holds the suit; each later flip pays A +20. Bidding 0 is no longer free.
 
-Two players, bids 44 and 44 (both silent at the public prior): void. Nothing is bought; if either player already owns the flipped suit from an earlier round, that stake still pays when the card turns.
+Two players, bids 55 and 55 (both silent at the public prior): void. Nothing is bought; if either player already owns the flipped suit from an earlier round, that stake still pays when the card turns.
 
 A card step with two stakes on hearts, one held by A against `{B, C, D}` from auction 2 and one held by C against `{A, B, D}` from auction 5, when a heart flips: A gets 10 from each of B, C, D and pays 10 to C; C gets 10 from each of A, B, D and pays 10 to A. Net: A +20, B −20, C +20, D −20. Two stakes were **hit**; the client draws the streams netted per ordered pair: B→A 10, D→A 10, B→C 10, D→C 10, and A↔C cancels to nothing.
 
@@ -72,6 +72,8 @@ An all-way tie is void: `buyers` and `sellers` are empty, the purchase deltas ar
 Everything in v1 section 2.6 of that spec, plus every stake: the auction that created it, its suit, its buyers, its sellers. After each auction the record also shows each player's purchase delta and, after the flip, the number of stakes hit, the netted payout streams, and the round's net delta.
 
 ### 2.6 The runout
+
+Where an earlier section quotes a number that 2.6 changes, 2.6 wins.
 
 The last five cards of the deck are the **runout**. `RUNOUT_CARDS = 5`, `RUNOUT_MULTIPLIER = 2`. Card `c` (1-based) is a runout card when `c > N − 5`, where `N` is the deck size (20 for two or four players, 21 for three).
 
@@ -89,7 +91,7 @@ Rationale (owner, 2026-09-13): late auctions carry little value and little new i
 
 ### 3.1 `public/game-core.js`
 
-- `PAYOUT` becomes `CARD_PAYOUT = 10`. `MAX_BID` stays 100 (the largest possible stake is 9 cards, worth 90).
+- `PAYOUT` becomes `CARD_PAYOUT = 10`. `MAX_BID` stays 100. With the runout a nine-card stake is worth up to 140 in theory and fair value exceeds 100 only on extreme two-player hands (about one deal in ten thousand); a bid above the cap clamps and the owner accepts that.
 - `resolveBids(bids)` returns `{ topBid, buyers, sellers, void }` as today except that `price` is renamed `topBid`, because it no longer names an amount that changes hands. An all-way tie has empty `buyers` and `sellers` and `void: true`.
 - `settlePurchase(bids)` replaces `settle`: `resolveBids` plus `deltas`, the purchase deltas above, initialised to 0 for every id in `bids`. Void returns all-zero deltas.
 - `settleFlip(stakes, suit, playerIds, perCard = CARD_PAYOUT)` returns `{ hits, payouts, deltas }`; the card step passes `CARD_PAYOUT × RUNOUT_MULTIPLIER` for a runout card. `hits` is the number of stakes whose suit is `suit`. `payouts` is the list of `{ from, to, amount }` for every ordered pair that owes money after netting every hit stake, ordered by `playerIds` (from, then to), zero pairs omitted. `deltas` is the net per player, initialised to 0 for every id in `playerIds`. No hit stakes: `hits 0`, `payouts []`, all-zero deltas.
@@ -153,7 +155,7 @@ Seated `state` gains `stakes`: in every in-match phase the full list, each `{ au
 
 ### 4.2 The dock
 
-Under the bid number, a small hint reads the bid as cards: `4.7 cards` for a bid of 47 (`(amount / 10).toFixed(1)`), so the number people type is always tied to the thing they are estimating. The default draft for each auction is `priorValue(flipped, cardsRemaining)` instead of the constant 25. The rest of the dock (slider, steppers, ring, Bid/Locked button) is unchanged.
+Under the bid number, a small hint reads the bid as cards: `4.4 cards` for the default bid of 55 at auction 1 of a four-player deal (`(amount / cardValue(cardsRemaining)).toFixed(1)`, section 2.6), so the number people type is always tied to the thing they are estimating. The default draft for each auction is `priorValue(flipped, cardsRemaining)` instead of the constant 25. The rest of the dock (slider, steppers, ring, Bid/Locked button) is unchanged.
 
 ### 4.3 Seats
 
@@ -181,7 +183,7 @@ Six slides, same mini table. Captions and animations change where the rule chang
 2. **Deal.** Unchanged.
 3. **Shuffle back.** Unchanged.
 4. **Bid.** Tags rise to 20, 50, 80; the 80 glows gold. Caption: "Everyone bids 0 to 100 in secret. The highest bid wins the suit and pays each other player the price that player bid. If two tie at the top, both buy."
-5. **Pay.** Chips fly 50 and 20 from the buyer to the two others; a stake chip lands on the buyer. The card turns over beside the reference: a heart, and 10 flies back from each. A stepper labelled `hearts to come` (1 to 9, default 4) means the total number of later hearts **including the one shown**; changing it replays the flip beat that many times and the slide ends on the net badges, `purchase + N × oneFlipPayout`. Caption: "You pay each player their bid. Every later heart pays you 10 from each of them, so a bid of 47 says you expect about 4.7 more."
+5. **Pay.** Chips fly 50 and 20 from the buyer to the two others; a stake chip lands on the buyer. The card turns over beside the reference: a heart, and 10 flies back from each. A stepper labelled `hearts to come` (1 to 9, default 4) means the total number of later hearts **including the one shown**; changing it replays the flip beat that many times and the slide ends on the net badges, `purchase + N × oneFlipPayout`. Caption: "You pay each player their bid. Every later heart pays you 10 from each of them, and 20 in the last five cards. The dock reads your bid back as cards."
 6. **Try it.** Three sliders labelled You, A, B and the same `hearts to come` stepper (0 to 9), with live net deltas beside each slider computed with `settlePurchase` and `settleFlip` as `purchase + N × oneFlipPayout`. Ties show all top bidders as buyers; an all-way tie shows "no trade". Caption: "Move the bids. Notice who wins the suit and who wins the money."
 
 ### 4.7 Text inventory
@@ -196,7 +198,7 @@ New or changed strings: the dock's `n.n cards` hint, the badge's suit glyph and 
 
 All with `npm test`.
 
-- `game-core`: `settlePurchase` reproduces every worked example in section 2.3 exactly and is zero-sum for a range of bid sets including partial ties; an all-way tie is void with empty buyers and sellers and all-zero deltas; `settleFlip` reproduces the two-stake example, nets opposing stakes per pair, reports `hits`, omits zero pairs, returns the two-player full-cancellation case as `hits 2, payouts []`, returns nothing for a suit with no stakes, initialises every player's delta from `playerIds`, and is zero-sum; `priorValue` gives 44 for auction 1 of a 4-player game (19 remaining, one card of the suit flipped) and clamps.
+- `game-core`: `settlePurchase` reproduces every worked example in section 2.3 exactly and is zero-sum for a range of bid sets including partial ties; an all-way tie is void with empty buyers and sellers and all-zero deltas; `settleFlip` reproduces the two-stake example, nets opposing stakes per pair, reports `hits`, omits zero pairs, returns the two-player full-cancellation case as `hits 2, payouts []`, returns nothing for a suit with no stakes, initialises every player's delta from `playerIds`, and is zero-sum; `priorValue` gives 55 for auction 1 of a 4-player game (19 remaining, the last five doubled, one card of the suit flipped) and clamps.
 - `fair-value`: `expectedRemaining` sums over suits to `|D| − k`; with no flips equals the closed form `hand_s + (P−1)·n·(10 − hand_s)/(40 − n)`; flipping a card of a suit lowers that suit's expectation by less than one card (seeing the suit raises the deck's expected count of it) and raises no other suit's; `fairValue` is `10 ×` the reference suit's expectation; the existing Monte Carlo test stays for `nextSuitProbabilities`.
 - `bots`: existing assertions with the new profile table; the shade test still gets `round(fair · shade)` at σ 0.
 - `game`: the purchase is applied to scores at resolve and the `reveal/bids` snapshot shows it; a stake is recorded unless void; the card step pays every stake on the flipped suit including ones from earlier auctions, pays an older stake even when the current auction's suit differs, and pays an older stake after a void auction; the last flip pays out and leads to results with no pending timers; two consecutive games share no stakes; existing timer, lock, and disconnect tests updated for the new entry shape.
@@ -209,7 +211,7 @@ All with `npm test`.
 
 - Stake instead of next-card bet: chosen by the owner to cut variance and make bids about a count. Considered and dropped: two-sided quotes with a spread cap (too many decisions per round), an exchange-style crossing of quotes (market making felt convoluted), and a median-price call market (loses the single winner).
 - Pairwise second price (buyer pays each seller that seller's bid) instead of first price or a single second price: it is the smallest change that makes every bid a real price. Codex review pointed out, correctly, that this does not make bids truthful: sellers shade up toward the expected winner and buyers may overbid to sweep cheap sellers. The owner's view, kept in section 1: both directions of misreporting cost money, so bids land near value with a strategic lean, and that lean is the game.
-- Payout of 10 per card per counterparty, bids in chips 0..100 with a cards hint: keeps the slider and MAX_BID as they are, and a bid of 47 reads naturally as 4.7 cards.
+- Payout of 10 per card per counterparty, bids in chips 0..100 with a cards hint: keeps the slider and MAX_BID as they are, and the dock reads a bid back as cards at the current card value.
 - Server applies each leg where it happens: with a purchase leg and a payout leg of different kinds, deriving an interim display score on the client was more machinery than it saved.
 - Stakes are public, including sellers: the game is about reading the table, and the sellers are implied by the buyers anyway.
 - The default bid is the public prior, not 25, so a silent player does not give the suit away. Every silent player then bids the same number, so a fully passive table ties and trades nothing; Codex proposed a random tie-break buyer, and the owner chose to keep ties void as the simpler rule, judging the case unlikely at a real table.

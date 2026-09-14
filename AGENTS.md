@@ -8,8 +8,9 @@ file, so it is the single source of truth for both Claude Code and Codex.
 Follow Suit: a multiplayer card auction that teaches the winner's curse. Each
 round players bid for the suit of the card on top; the highest bidder buys it
 from every other player, paying each seller that seller's own bid, and every
-later flip of that suit pays the owner 10 per seller. Express 5 plus raw
-WebSockets (`ws`), vanilla JS in the browser, server-side bots. The rules are
+later flip of that suit pays the owner 10 per seller. The last five cards are
+never auctioned and pay double. Express 5 plus raw WebSockets (`ws`), vanilla
+JS in the browser, server-side bots. The rules are
 in `docs/superpowers/specs/2026-09-13-suit-stakes-design.md` (which amends
 `2026-09-12-follow-suit-design.md`); the client (poker-table layout, dealing
 phase, animations, sound effects, tutorial) is in
@@ -36,7 +37,7 @@ Environment variables (defaults in `server.js`): `PORT`, `DEAL_MS`, `BID_MS`,
   Deal, settlement, ranking, constants.
 - `public/seat-layout.js`, `public/transitions.js`, `public/sequencer.js`: pure
   UMD helpers for the browser, unit-tested in Node. Seat geometry, the
-  snapshot-to-animation planner (plus display scores and payment streams),
+  snapshot-to-animation planner (plus leg baselines and payment streams),
   and the generation-based cancellable sequencer.
 - `lib/fair-value.js`: exact Bayesian probability of the next suit. Server only;
   never serve it, because estimating fair value is the skill the game teaches.

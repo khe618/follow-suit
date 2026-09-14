@@ -130,7 +130,7 @@ test("all locked resolves early and the stale deadline is harmless", () => {
   // advance into auction 1 ("bidding:null"); then: p1's lock alone isn't
   // allLocked yet, so bid() fires onChange itself ("bidding:null") before
   // p2's lock makes allLocked() true and resolve() takes over ("reveal:bids");
-  // then the reveal timers fire flipAndSettle ("reveal:card") and
+  // then the reveal timers fire flipAndPay ("reveal:card") and
   // advance/startAuction(2) ("bidding:null").
   assert.deepEqual(changes, ["dealing:null", "bidding:null", "bidding:null", "reveal:bids", "reveal:card", "bidding:null"]);
   // The original 20 s deadline would have fired by now. Auction 2 must be intact.

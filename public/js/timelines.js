@@ -291,7 +291,6 @@ export async function revealCardTimeline(ctx, t, state) {
   // The first runout card: the last five cards pay double from here on.
   const deckSize = state.flipped.length + state.cardsRemaining;
   const firstRunout = state.flipped.length === deckSize - RUNOUT_CARDS + 1;
-  if (firstRunout) els.deckDouble.style.visibility = "hidden";
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   // Flip: the state layer already shows the new reference. Hide it, stand in
@@ -322,7 +321,7 @@ export async function revealCardTimeline(ctx, t, state) {
   const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
   const mine = (last.deltas && last.deltas[state.you]) || 0;
   const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
-  t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.join(", ")}. ${you}`);
+  t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
   await ctx.wait(COMPARE_MS);
   await ctx.fly(top, beside, slot, SLIDE_MS);
   els.refSlot.style.visibility = "";
