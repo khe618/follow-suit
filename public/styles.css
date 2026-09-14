@@ -164,7 +164,7 @@ label { font-size: 0.85rem; color: var(--muted); }
 .seat.buyer .bid-tag { background: var(--gold); }
 .seat-stack { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); width: 26px; height: 36px; pointer-events: none; }
 .seat-remove { position: absolute; top: -4px; right: 6px; width: 20px; height: 20px; border-radius: 50%; border: none; background: var(--bad); color: #fff; font-size: 0.8rem; line-height: 20px; padding: 0; cursor: pointer; }
-.delta-badge { position: absolute; left: 50%; top: -6px; transform: translateX(-50%); padding: 2px 8px; border-radius: 999px; font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; background: rgba(0, 0, 0, 0.6); }
+.delta-badge { position: absolute; left: 50%; top: calc(100% - 8px); transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1rem; font-weight: 800; background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); z-index: 3; }
 .delta-badge.pos { color: var(--good); }
 .delta-badge.neg { color: var(--bad); }
 .delta-badge.zero { color: var(--muted); }
@@ -189,8 +189,9 @@ label { font-size: 0.85rem; color: var(--muted); }
 .card.current { outline: 3px solid var(--gold); }
 
 /* log: cards flipped so far (left to right) and every player's bid on each */
-.log { width: min(100%, 900px); display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.log-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0, 0, 0, 0.3); }
+/* A grid so the footer (view toggle, suit counts) is exactly as wide as the table above it. */
+.log { width: min(100%, 900px); display: grid; grid-template-columns: minmax(0, max-content); justify-content: end; gap: 4px; }
+.log-scroll { justify-self: end; max-width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0, 0, 0, 0.3); }
 .log-table { border-collapse: separate; border-spacing: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; }
 .log-table th, .log-table td { padding: 2px 8px; text-align: center; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
 .log-table thead th { height: 40px; }
@@ -203,6 +204,16 @@ label { font-size: 0.85rem; color: var(--muted); }
 .log-table td.current, .log-table th.log-card.current { background: rgba(224, 179, 84, 0.08); }
 .log-table td.current.buyer { background: var(--gold); }
 .log-table tbody tr:last-child th, .log-table tbody tr:last-child td { border-bottom: none; }
+.log-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.log-mode { display: flex; border: 1px solid var(--line); border-radius: 999px; background: rgba(0, 0, 0, 0.3); padding: 2px; }
+.log-mode-btn { padding: 2px 10px; border: none; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+.log-mode-btn:hover { color: var(--ink); }
+.log-mode-btn[aria-pressed="true"] { background: var(--felt-2); color: var(--gold-2); }
+.log-mode-btn:focus-visible { outline: 2px solid var(--gold-2); outline-offset: 2px; }
+.log-table td.pos { color: var(--good); }
+.log-table td.neg { color: var(--bad); }
+.log-table td.buyer.pos, .log-table td.buyer.neg { color: #1a1408; }
+.log-table td.void { color: var(--muted); }
 .suit-counts { display: flex; gap: 4px; }
 .suit-chip { padding: 2px 7px; border-radius: 999px; background: var(--felt-2); border: 1px solid var(--line); font-size: 0.8rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .suit-chip.hearts, .suit-chip.diamonds { color: #ff8a7a; }

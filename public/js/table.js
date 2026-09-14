@@ -23,6 +23,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), refSlot: $("refSlot"),
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), inviteBtn: $("inviteBtn"),
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
+    logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
@@ -255,10 +256,21 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
 
   // The log above the table: one column per card flipped so far, one row
-  // per player with the bid they made while that card was the reference.
-  // The current reference gets a pending column until its bids are
-  // revealed. The deal timeline empties the log so the first reference is
-  // not given away before it is flipped.
+  // per player with either the bid they made while that card was the
+  // reference or (toggled) what that auction paid them. The current
+  // reference gets a pending column until its bids are revealed; in the
+  // payouts view the column stays pending until the next card settles it.
+  // The deal timeline empties the log so the first reference is not given
+  // away before it is flipped.
+  let logMode = "bids";
+  function setLogMode(mode) {
+    logMode = mode;
+    els.logBidsBtn.setAttribute("aria-pressed", String(mode === "bids"));
+    els.logPayoutsBtn.setAttribute("aria-pressed", String(mode === "payouts"));
+    els.log.querySelector(".log-table").setAttribute("aria-label", mode === "bids" ? "Cards and bids so far" : "Cards and payouts so far");
+    // A running timeline owns the log (the deal blanks it); the next full draw catches up.
+    if (state && !anim.running()) renderLog();
+  }
   function renderLog() {
     const show = state.phase !== "lobby";
     els.log.hidden = !show;
@@ -294,9 +306,17 @@ export function createTable({ send, roomCode, toast, audio }) {
       cols.forEach((col, i) => {
         const cell = document.createElement("td");
         if (i === cols.length - 1) cell.classList.add("current");
-        if (col.entry) {
-          cell.textContent = String(col.entry.bids[p.id]);
-          if (col.entry.buyers.includes(p.id)) cell.classList.add("buyer");
+        const entry = col.entry;
+        if (entry && logMode === "bids") {
+          cell.textContent = String(entry.bids[p.id]);
+          if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
+        } else if (entry && entry.deltas) {
+          const d = entry.deltas[p.id] || 0;
+          cell.textContent = entry.void ? "–" : fmtDelta(d);
+          if (entry.void) cell.classList.add("void");
+          else if (d > 0) cell.classList.add("pos");
+          else if (d < 0) cell.classList.add("neg");
+          if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
         } else {
           cell.textContent = "·";
           cell.classList.add("pending");
@@ -584,6 +604,8 @@ export function createTable({ send, roomCode, toast, audio }) {
   els.bidDownBtn.addEventListener("click", () => step(-1));
   els.bidUpBtn.addEventListener("click", () => step(1));
   els.lockBtn.addEventListener("click", lockBid);
+  els.logBidsBtn.addEventListener("click", () => setLogMode("bids"));
+  els.logPayoutsBtn.addEventListener("click", () => setLogMode("payouts"));
   els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }));
 
   return { render, dispose, setConnected, els, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, isConnected: () => connected };

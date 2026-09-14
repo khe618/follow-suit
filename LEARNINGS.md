@@ -4,6 +4,16 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 
 ---
 
+## 2026-09-13 — Animation beats cannot be verified in the Claude-in-Chrome tab; use headless Playwright, and change phase-timer defaults in three places
+
+**Symptom / context:** Reworking the round-P&L badge in `public/js/timelines.js`, the MCP tab never showed a `.delta-badge` at all (MutationObserver on `#seats` recorded nothing across several auctions) while the log and seat scores kept updating. Separately, bumping the reveal-card default made two unrelated-looking tests fail one after another.
+
+**Root cause:** the MCP tab reports `document.hidden === true` even when its window is foreground, so Chrome freezes rAF and Web Animations and `anim.js` timelines never advance (details and the cross-project workaround in the global `claude-code.md` log). The phase-timer defaults are duplicated: `lib/config.js` (env fallback) and `lib/game.js` `DEFAULT_CONFIG`, and both `tests/config.test.js` and `tests/snapshot.test.js` assert the literal values.
+
+**Fix / what to do next time:** For any timeline change, run a headless Playwright script against a spare-port server (`PORT=3011 DEAL_MS=1500 BID_MS=5000 REVEAL_BIDS_MS=1500 node server.js`), join quick play, observe with a MutationObserver plus `getComputedStyle` sampling, and screenshot mid-hold; the extension tab is only good for static state. When changing `dealMs`/`bidMs`/`revealBidsMs`/`revealCardMs` defaults, edit `lib/config.js`, `lib/game.js`, and both test files together. Keep the reveal-card timeline under the `revealCardMs` budget: turn 620 + compare 800 + slide 280 + pay streams ~1.2 s + badge ~1.8 s + fade 300 already sits near 5 s.
+
+**Refs:** `public/js/timelines.js` (`DELTA_*_MS`, `revealCardTimeline`); `lib/game.js:7`; `tests/config.test.js`; `tests/snapshot.test.js`; global log `~/.claude/agent-logs/claude-code.md` "occluded window makes the page document.hidden".
+
 ## 2026-09-13 — A socket that closes over its room object can be stranded when the registry deletes that room underneath it
 
 **Symptom / context:** A visitor sitting on the name screen of a room whose last human had left could later press Join and get a `joined` message but never a `state`; the button looked dead and nothing was logged. Only surfaced in the whole-branch review, not in any test.

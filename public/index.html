@@ -52,7 +52,13 @@
             <tbody id="logBody"></tbody>
           </table>
         </div>
-        <div id="suitCounts" class="suit-counts"></div>
+        <div class="log-foot">
+          <div class="log-mode" role="group" aria-label="Log view">
+            <button type="button" id="logBidsBtn" class="log-mode-btn" aria-pressed="true">Bids</button>
+            <button type="button" id="logPayoutsBtn" class="log-mode-btn" aria-pressed="false">Payouts</button>
+          </div>
+          <div id="suitCounts" class="suit-counts"></div>
+        </div>
       </div>
       <div id="table" class="table">
         <div id="seats" class="seats"></div>

@@ -22,6 +22,9 @@ const HAND_MS = 250;
 const CHIPS_PER_STREAM = 6;
 const CHIP_GAP_MS = 60;
 const CHIP_MS = 500;
+const DELTA_IN_MS = 150;
+const DELTA_HOLD_MS = 1300;
+const DELTA_OUT_MS = 250;
 
 function fmtDelta(n) {
   return n > 0 ? `+${n}` : String(n);
@@ -303,7 +306,9 @@ export async function revealCardTimeline(ctx, t, state) {
   top.remove();
   old.remove();
 
-  // Payout leg (match only), then the net delta badges on every seat.
+  // Payout leg (match only), then the net delta on every seat: a badge that
+  // pops in, holds still long enough to read, and fades. No drift, because a
+  // moving number is hard to read at a glance.
   const to = displayScores(state);
   const streams = paymentStreams(last, ids, "card");
   if (streams.length) await payStreams(ctx, t, streams, fromScores, to);
@@ -316,12 +321,13 @@ export async function revealCardTimeline(ctx, t, state) {
     badge.textContent = fmtDelta(d);
     t.seatEl(id).append(badge);
     badges.push(badge);
-    ctx.animate(badge, [{ transform: "translate(-50%, 0)", opacity: 1 }, { transform: "translate(-50%, -34px)", opacity: 0 }], { duration: 1200, easing: "ease-out", fill: "forwards" }).catch(() => {});
+    ctx.animate(badge, [{ transform: "translate(-50%, 0) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
   }
   const mine = (last.deltas && last.deltas[state.you]) || 0;
   t.announce(mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
   try {
-    await ctx.wait(1200);
+    await ctx.wait(DELTA_IN_MS + DELTA_HOLD_MS);
+    await ctx.until(Promise.all(badges.map((b) => ctx.animate(b, [{ opacity: 1 }, { opacity: 0 }], { duration: DELTA_OUT_MS, fill: "forwards" }).catch(() => {}))));
   } finally {
     for (const b of badges) b.remove();
   }
