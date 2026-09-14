@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const GameCore = require("../public/game-core.js");
-const { SUITS, HAND_SIZES, handSize, buildPool, shuffle, countSuits, deal, resolveBids, settle, rank } = GameCore;
+const { SUITS, HAND_SIZES, CARD_PAYOUT, handSize, buildPool, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, priorValue, rank } = GameCore;
 
 // Deterministic randomInt: always picks the last index, so shuffle is identity.
 const identityRandom = (n) => n - 1;
@@ -46,34 +46,96 @@ test("deal with identity random is reproducible", () => {
 });
 
 test("resolveBids: highest wins, ties are all buyers, all-tie is void", () => {
-  assert.deepEqual(resolveBids({ a: 80, b: 50, c: 20 }), { price: 80, buyers: ["a"], sellers: ["b", "c"], void: false });
-  assert.deepEqual(resolveBids({ a: 60, b: 60, c: 30, d: 10 }), { price: 60, buyers: ["a", "b"], sellers: ["c", "d"], void: false });
-  assert.deepEqual(resolveBids({ a: 0, b: 0 }), { price: 0, buyers: [], sellers: [], void: true });
-  assert.deepEqual(resolveBids({ a: 7, b: 7, c: 7 }), { price: 7, buyers: [], sellers: [], void: true });
+  assert.deepEqual(resolveBids({ a: 80, b: 50, c: 20 }), { topBid: 80, buyers: ["a"], sellers: ["b", "c"], void: false });
+  assert.deepEqual(resolveBids({ a: 60, b: 60, c: 30, d: 10 }), { topBid: 60, buyers: ["a", "b"], sellers: ["c", "d"], void: false });
+  assert.deepEqual(resolveBids({ a: 0, b: 0 }), { topBid: 0, buyers: [], sellers: [], void: true });
+  assert.deepEqual(resolveBids({ a: 7, b: 7, c: 7 }), { topBid: 7, buyers: [], sellers: [], void: true });
 });
 
-test("settle reproduces the spec's worked examples", () => {
-  assert.deepEqual(settle({ a: 80, b: 50, c: 20 }, true).deltas, { a: 40, b: -20, c: -20 });
-  assert.deepEqual(settle({ a: 80, b: 50, c: 20 }, false).deltas, { a: -160, b: 80, c: 80 });
-  assert.deepEqual(settle({ a: 60, b: 60, c: 30, d: 10 }, true).deltas, { a: 80, b: 80, c: -80, d: -80 });
-  assert.deepEqual(settle({ a: 60, b: 60, c: 30, d: 10 }, false).deltas, { a: -120, b: -120, c: 120, d: 120 });
-  assert.deepEqual(settle({ a: 5, b: 0, c: 0 }, true).deltas, { a: 190, b: -95, c: -95 });
-  assert.deepEqual(settle({ a: 5, b: 0, c: 0 }, false).deltas, { a: -10, b: 5, c: 5 });
-  const v = settle({ a: 0, b: 0 }, true);
+test("settlePurchase: each buyer pays each seller that seller's bid", () => {
+  assert.equal(CARD_PAYOUT, 10);
+  assert.deepEqual(settlePurchase({ a: 80, b: 50, c: 20 }).deltas, { a: -70, b: 50, c: 20 });
+  assert.deepEqual(settlePurchase({ a: 60, b: 60, c: 30, d: 10 }).deltas, { a: -40, b: -40, c: 60, d: 20 });
+  const cheap = settlePurchase({ a: 5, b: 0, c: 0 });
+  assert.deepEqual(cheap.deltas, { a: 0, b: 0, c: 0 });
+  assert.deepEqual(cheap.buyers, ["a"]);
+  assert.deepEqual(cheap.sellers, ["b", "c"]);
+  const v = settlePurchase({ a: 0, b: 0 });
   assert.equal(v.void, true);
   assert.deepEqual(v.buyers, []);
+  assert.deepEqual(v.sellers, []);
   assert.deepEqual(v.deltas, { a: 0, b: 0 });
+  assert.equal(settlePurchase({ a: 7, b: 7, c: 7 }).void, true);
 });
 
-test("settle is zero-sum for every buyer/seller split", () => {
+test("settlePurchase is zero-sum for every buyer/seller split", () => {
   const cases = [
-    { a: 100, b: 0 }, { a: 33, b: 33, c: 12 }, { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 },
-    { a: 50, b: 50, c: 50, d: 49 }, { a: 0, b: 1 }
+    { a: 100, b: 0 }, { a: 33, b: 33, c: 12 }, { a: 1, b: 2, c: 3, d: 4 },
+    { a: 50, b: 50, c: 50, d: 49 }, { a: 0, b: 1 }, { a: 9, b: 9 }
   ];
-  for (const bids of cases) for (const matched of [true, false]) {
-    const { deltas } = settle(bids, matched);
+  for (const bids of cases) {
+    const { deltas } = settlePurchase(bids);
     const sum = Object.values(deltas).reduce((x, y) => x + y, 0);
-    assert.equal(sum, 0, JSON.stringify({ bids, matched, deltas }));
+    assert.equal(sum, 0, JSON.stringify({ bids, deltas }));
+  }
+});
+
+test("settleFlip pays every stake on the flipped suit, netted per pair, in player order", () => {
+  const ids = ["a", "b", "c", "d"];
+  const stakes = [
+    { auction: 2, suit: "hearts", buyers: ["a"], sellers: ["b", "c", "d"] },
+    { auction: 3, suit: "clubs", buyers: ["b"], sellers: ["a", "c", "d"] },
+    { auction: 5, suit: "hearts", buyers: ["c"], sellers: ["a", "b", "d"] }
+  ];
+  const r = settleFlip(stakes, "hearts", ids);
+  assert.equal(r.hits, 2);
+  assert.deepEqual(r.payouts, [
+    { from: "b", to: "a", amount: 10 }, { from: "b", to: "c", amount: 10 },
+    { from: "d", to: "a", amount: 10 }, { from: "d", to: "c", amount: 10 }
+  ]);
+  assert.deepEqual(r.deltas, { a: 20, b: -20, c: 20, d: -20 });
+  const single = settleFlip(stakes.slice(0, 1), "hearts", ["a", "b", "c", "d"]);
+  assert.deepEqual(single.deltas, { a: 30, b: -10, c: -10, d: -10 });
+  const tie = settleFlip([{ auction: 1, suit: "spades", buyers: ["a", "b"], sellers: ["c", "d"] }], "spades", ids);
+  assert.deepEqual(tie.payouts, [
+    { from: "c", to: "a", amount: 10 }, { from: "c", to: "b", amount: 10 },
+    { from: "d", to: "a", amount: 10 }, { from: "d", to: "b", amount: 10 }
+  ]);
+  assert.deepEqual(tie.deltas, { a: 20, b: 20, c: -20, d: -20 });
+});
+
+test("settleFlip: no stakes on the suit, and opposing stakes that cancel", () => {
+  const none = settleFlip([{ auction: 1, suit: "hearts", buyers: ["a"], sellers: ["b"] }], "clubs", ["a", "b"]);
+  assert.deepEqual(none, { hits: 0, payouts: [], deltas: { a: 0, b: 0 } });
+  assert.deepEqual(settleFlip([], "hearts", ["a", "b", "c"]), { hits: 0, payouts: [], deltas: { a: 0, b: 0, c: 0 } });
+  const cancel = settleFlip([
+    { auction: 1, suit: "hearts", buyers: ["a"], sellers: ["b"] },
+    { auction: 3, suit: "hearts", buyers: ["b"], sellers: ["a"] }
+  ], "hearts", ["a", "b"]);
+  assert.deepEqual(cancel, { hits: 2, payouts: [], deltas: { a: 0, b: 0 } });
+});
+
+test("settleFlip is zero-sum", () => {
+  const ids = ["a", "b", "c", "d"];
+  const stakes = [
+    { auction: 1, suit: "hearts", buyers: ["a", "b"], sellers: ["c", "d"] },
+    { auction: 2, suit: "hearts", buyers: ["d"], sellers: ["a", "b", "c"] },
+    { auction: 4, suit: "hearts", buyers: ["c"], sellers: ["a", "b", "d"] }
+  ];
+  const { deltas, payouts } = settleFlip(stakes, "hearts", ids);
+  assert.equal(Object.values(deltas).reduce((x, y) => x + y, 0), 0);
+  for (const p of payouts) assert.ok(p.amount > 0 && p.from !== p.to);
+});
+
+test("priorValue is the expected remaining count of the reference suit with no hand information", () => {
+  // Auction 1 of a 4-player game: 19 cards remain, one of the suit is out of 39 unseen pool cards.
+  assert.equal(priorValue(["hearts"], 19), 44);
+  assert.equal(priorValue(["hearts", "hearts", "hearts"], 17), Math.round(10 * 17 * 7 / 37));
+  assert.equal(priorValue([], 19), 0);
+  assert.equal(priorValue(["hearts"], 0), 0);
+  for (let k = 1; k <= 20; k++) {
+    const v = priorValue(Array(k).fill("spades"), 20 - k);
+    assert.ok(Number.isInteger(v) && v >= 0 && v <= 100, String(v));
   }
 });
 

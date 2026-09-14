@@ -13,7 +13,7 @@
   const MIN_PLAYERS = 2;
   const MAX_PLAYERS = 4;
   const HAND_SIZES = { 2: 10, 3: 7, 4: 5 };
-  const PAYOUT = 100;
+  const CARD_PAYOUT = 10;
   const MAX_BID = 100;
 
   function handSize(playerCount) {
@@ -64,24 +64,73 @@
 
   function resolveBids(bids) {
     const ids = Object.keys(bids);
-    let price = 0;
-    for (const id of ids) price = Math.max(price, bids[id]);
-    const top = ids.filter((id) => bids[id] === price);
-    const sellers = ids.filter((id) => bids[id] !== price);
+    let topBid = 0;
+    for (const id of ids) topBid = Math.max(topBid, bids[id]);
+    const top = ids.filter((id) => bids[id] === topBid);
+    const sellers = ids.filter((id) => bids[id] !== topBid);
     const isVoid = sellers.length === 0;
-    return { price, buyers: isVoid ? [] : top, sellers, void: isVoid };
+    return { topBid, buyers: isVoid ? [] : top, sellers, void: isVoid };
   }
 
-  function settle(bids, matched) {
+  // Purchase leg: each buyer pays each seller that seller's own bid. The
+  // buyer's bid only decides who buys (second price, pairwise).
+  function settlePurchase(bids) {
     const result = resolveBids(bids);
     const deltas = {};
     for (const id of Object.keys(bids)) deltas[id] = 0;
-    if (!result.void) {
-      const payout = matched ? PAYOUT : 0;
-      for (const id of result.buyers) deltas[id] = (payout - result.price) * result.sellers.length;
-      for (const id of result.sellers) deltas[id] = (result.price - payout) * result.buyers.length;
+    for (const b of result.buyers) {
+      for (const s of result.sellers) {
+        deltas[b] -= bids[s];
+        deltas[s] += bids[s];
+      }
     }
-    return { price: result.price, buyers: result.buyers, sellers: result.sellers, void: result.void, deltas };
+    return { ...result, deltas };
+  }
+
+  // Payout leg for one flip: every stake on the flipped suit pays
+  // CARD_PAYOUT from each of its sellers to each of its buyers. Opposing
+  // obligations between the same two players are netted, so the stream list
+  // holds at most one entry per unordered pair, ordered by playerIds.
+  function settleFlip(stakes, suit, playerIds) {
+    const deltas = {};
+    for (const id of playerIds) deltas[id] = 0;
+    const gross = {};
+    const owe = (from, to, amount) => {
+      gross[from] = gross[from] || {};
+      gross[from][to] = (gross[from][to] || 0) + amount;
+    };
+    let hits = 0;
+    for (const stake of stakes) {
+      if (stake.suit !== suit) continue;
+      hits += 1;
+      for (const s of stake.sellers) for (const b of stake.buyers) owe(s, b, CARD_PAYOUT);
+    }
+    const payouts = [];
+    for (const from of playerIds) {
+      for (const to of playerIds) {
+        if (from === to) continue;
+        const net = ((gross[from] && gross[from][to]) || 0) - ((gross[to] && gross[to][from]) || 0);
+        if (net > 0) payouts.push({ from, to, amount: net });
+      }
+    }
+    for (const p of payouts) {
+      deltas[p.from] -= p.amount;
+      deltas[p.to] += p.amount;
+    }
+    return { hits, payouts, deltas };
+  }
+
+  // Expected remaining count of the reference suit (the last flipped card)
+  // with no hand information: every remaining deck card is a uniformly
+  // random unseen pool card. Public arithmetic, used for the dock default.
+  function priorValue(flipped, cardsRemaining) {
+    const k = flipped.length;
+    if (k === 0 || cardsRemaining <= 0) return 0;
+    const suit = flipped[k - 1];
+    const seen = countSuits(flipped)[suit];
+    const unseen = SUITS.length * POOL_PER_SUIT - k;
+    const raw = Math.round((CARD_PAYOUT * cardsRemaining * (POOL_PER_SUIT - seen)) / unseen);
+    return Math.max(0, Math.min(MAX_BID, raw));
   }
 
   function rank(scores) {
@@ -97,7 +146,7 @@
   }
 
   return {
-    SUITS, SUIT_SYMBOLS, POOL_PER_SUIT, MIN_PLAYERS, MAX_PLAYERS, HAND_SIZES, PAYOUT, MAX_BID,
-    handSize, buildPool, shuffle, countSuits, deal, resolveBids, settle, rank
+    SUITS, SUIT_SYMBOLS, POOL_PER_SUIT, MIN_PLAYERS, MAX_PLAYERS, HAND_SIZES, CARD_PAYOUT, MAX_BID,
+    handSize, buildPool, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, priorValue, rank
   };
 });
