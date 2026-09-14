@@ -147,9 +147,13 @@ export function createTable({ send, roomCode, toast, audio }) {
     return true;
   }
 
-  // On phones the log is a modal sheet; from 640px up it is simply part of
-  // the page. Openness is owned here and nowhere else.
-  const wide = matchMedia("(min-width: 640px)");
+  // The log renders inline only where there is genuinely room for it: it
+  // costs ~166px of column height, and below roughly 800px of viewport the
+  // table is squeezed to the point where seat pods crowd the deck. Anywhere
+  // else it is a sheet behind the Log button. Keep this query in step with
+  // the two .log-sheet media queries in styles.css - if CSS and JS disagree,
+  // a closed dialog still paints.
+  const wide = matchMedia("(min-width: 640px) and (min-height: 800px)");
   function syncLogSheet() {
     if (wide.matches) {
       if (els.logSheet.open) els.logSheet.close();
@@ -182,11 +186,22 @@ export function createTable({ send, roomCode, toast, audio }) {
 
   // Everything in the column that is not the table. The table is sized from
   // what is left, so its own height must not feed back in here.
-  const chrome = [document.querySelector(".topbar"), els.hand, els.suitCounts, els.dock];
+  //
+  // The log sheet has to be in this list: from 640px up it renders inline as
+  // the column's first child, and leaving it out sized the table as if those
+  // ~166px were free, pushing the counts row and the hand memo down behind
+  // the dock. On phones the same element is a closed (or modal) dialog and
+  // takes no column space, which is why the bug was desktop-only.
+  const chrome = [document.querySelector(".topbar"), els.logSheet, els.hand, els.suitCounts, els.dock];
   function measureChrome() {
     let total = 0;
     for (const el of chrome) {
       if (!el || el.hidden) continue;
+      // Count what occupies the column (static/relative) and what overlays it
+      // (the fixed dock). Skip a dialog that is out of flow: absolutely
+      // positioned when closed, top-layer when modal.
+      const position = getComputedStyle(el).position;
+      if (position === "absolute" || el.matches(":modal")) continue;
       total += el.getBoundingClientRect().height;
     }
     document.documentElement.style.setProperty("--chrome-h", `${Math.round(total)}px`);

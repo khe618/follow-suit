@@ -255,13 +255,14 @@ label { font-size: 0.85rem; color: var(--muted); }
 .log-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; }
 .counts-row { justify-content: center; padding: 2px 0; }
 .log { width: min(100%, 900px); display: grid; grid-template-columns: minmax(0, max-content); justify-content: end; gap: 4px; }
-@media (max-width: 639px) {
+/* Keep these two queries in step with the `wide` matchMedia in table.js. */
+@media (max-width: 639px), (max-height: 799px) {
   .log-sheet { display: none; }
   .log-sheet[open] { display: flex; position: fixed; inset: 0; width: 100%; height: 100dvh; flex-direction: column; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--felt); }
   .log-sheet .log { width: 100%; flex: 1; min-height: 0; justify-content: stretch; }
   .log-sheet .log-scroll { justify-self: stretch; max-height: 100%; overflow-y: auto; }
 }
-@media (min-width: 640px) {
+@media (min-width: 640px) and (min-height: 800px) {
   .log-sheet { position: static; display: block; width: min(100%, 900px); }
   .log-sheet-head { justify-content: flex-end; }
   #logCloseBtn { display: none; }
