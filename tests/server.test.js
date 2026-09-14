@@ -397,3 +397,29 @@ test("bidding round-trips: locked bids resolve, reveal, then auction 2", async (
   a.ws.close();
   b.ws.close();
 });
+
+test("a full two-player game reaches results with scores equal to the sum of round deltas", async () => {
+  const room = uniqueRoom();
+  const a = await join(room, "Ann");
+  const b = await join(room, "Ben");
+  a.send({ type: "start-game" });
+  let s = await a.until((m) => m.type === "state" && m.phase === "bidding" && m.auctionIndex === 1, "auction 1");
+  while (s.phase !== "results") {
+    const k = s.auctionIndex;
+    const before = a.messages.length;
+    a.send({ type: "bid", auction: k, amount: 30, locked: true });
+    b.send({ type: "bid", auction: k, amount: 10, locked: true });
+    s = await a.until((m) => m.type === "state" && (m.phase === "results" || (m.phase === "bidding" && m.auctionIndex === k + 1)), `after auction ${k}`, before);
+  }
+  assert.equal(s.history.length, 19, "15 auctions and 4 runout steps");
+  assert.equal(s.stakes.length, 15);
+  assert.deepEqual(s.history.filter((h) => h.runout).map((h) => h.index), [16, 17, 18, 19]);
+  for (const p of s.players) {
+    const total = s.history.reduce((acc, h) => acc + (h.deltas[p.id] || 0), 0);
+    assert.equal(p.score, total, `${p.id} score reconciles with history`);
+  }
+  assert.equal(s.players.reduce((acc, p) => acc + p.score, 0), 0);
+  assert.ok(s.history.filter((h) => !h.runout).every((h) => h.buyers.length === 1 && h.buyers[0] === a.playerId), "Ann outbids Ben every auction");
+  a.ws.close();
+  b.ws.close();
+});
