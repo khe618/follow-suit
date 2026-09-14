@@ -41,11 +41,6 @@ export function createTable({ send, roomCode, toast, audio }) {
   let connected = true;
 
   const anim = createAnim(els.sprites);
-  // The rail flash is an overlay whose opacity animates (transform/opacity
-  // only, per spec); box-shadow itself never animates.
-  els.flash = document.createElement("div");
-  els.flash.className = "rail-flash";
-  els.table.append(els.flash);
 
   // Writes a displayed score without touching state (timelines tick these).
   function showScore(id, value) {
@@ -65,7 +60,6 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.refSlot.style.visibility = "";
     els.priceBadge.style.visibility = "";
     els.priceBadge.style.opacity = "";
-    els.flash.className = "rail-flash";
     els.deckDouble.style.visibility = "";
     for (const el of seatEls.values()) {
       const tag = el.querySelector(".bid-tag");

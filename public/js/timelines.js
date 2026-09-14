@@ -305,9 +305,24 @@ export async function revealCardTimeline(ctx, t, state) {
   });
   const myPayout = payoutDelta(state.you);
   audio.play(myPayout > 0 ? "match" : myPayout < 0 ? "miss" : "tap");
+  // Local feedback rather than flashing the whole felt: ring the card that
+  // just landed, and pulse the stacks it actually pays. Tracked animations,
+  // so the sequencer cancels them and reduced motion is handled for us.
   if (hit) {
-    els.flash.className = "rail-flash pay";
-    ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+    ctx.animate(top, [
+      { boxShadow: "0 2px 6px rgba(0, 0, 0, 0.45)" },
+      { boxShadow: "0 0 0 3px #e0b354, 0 0 18px #e0b354", offset: 0.35 },
+      { boxShadow: "0 2px 6px rgba(0, 0, 0, 0.45)" }
+    ], { duration: 700, easing: "ease-out" }).catch(() => {});
+    for (const id of ids) {
+      const stack = t.seatEl(id) && t.seatEl(id).querySelector(`.stake-stack[data-suit="${last.flipped}"]`);
+      if (!stack) continue;
+      ctx.animate(stack, [
+        { transform: "scale(1)" },
+        { transform: "scale(1.18)", offset: 0.4 },
+        { transform: "scale(1)" }
+      ], { duration: 600, easing: "ease-out" }).catch(() => {});
+    }
   }
   const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
   const mine = (last.deltas && last.deltas[state.you]) || 0;

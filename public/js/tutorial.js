@@ -32,11 +32,9 @@ function miniTable() {
   // origin as the sprite layer, above the seats and the centre.
   const keep = document.createElement("div");
   keep.className = "keep-layer";
-  const flash = document.createElement("div");
-  flash.className = "rail-flash";
-  table.append(seats, centre, keep, sprites, flash);
+  table.append(seats, centre, keep, sprites);
   return {
-    table, seatEls, sprites, keep, flash,
+    table, seatEls, sprites, keep,
     deck: centre.querySelector(".deck"),
     deckCount: centre.querySelector(".deck-count"),
     refSlot: centre.querySelector(".ref-slot"),
@@ -173,9 +171,17 @@ async function landStake(ctx, m, i, suit) {
   await ctx.animate(stack, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: 0.7 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
 }
 
+// The same local feedback the live table gives: the paying stacks pulse.
 function flashPay(ctx, m) {
-  m.flash.className = "rail-flash pay";
-  ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+  for (const seat of m.seatEls) {
+    const stack = seat.querySelector(".stake-stack");
+    if (!stack) continue;
+    ctx.animate(stack, [
+      { transform: "scale(1)" },
+      { transform: "scale(1.18)", offset: 0.4 },
+      { transform: "scale(1)" }
+    ], { duration: 600, easing: "ease-out" }).catch(() => {});
+  }
 }
 
 // One later heart: the card turns over and 10 flies from each seller to the
