@@ -91,7 +91,7 @@ test("start rejects wrong phase and bad player counts", () => {
   g2.destroy();
 });
 
-test("missing bids resolve to 0 at the deadline", () => {
+test("missing bids resolve to 0 at the deadline and the purchase is applied at once", () => {
   const { clock, game } = setup();
   game.bid("p1", { auction: 1, amount: 30, locked: false });
   clock.advance(20000);
@@ -100,8 +100,16 @@ test("missing bids resolve to 0 at the deadline", () => {
   const entry = game.history[0];
   assert.deepEqual(entry.bids, { p1: 30, p2: 0 });
   assert.deepEqual(entry.buyers, ["p1"]);
-  assert.equal(entry.price, 30);
+  assert.deepEqual(entry.sellers, ["p2"]);
+  assert.equal(entry.topBid, 30);
+  assert.equal(entry.void, false);
+  assert.deepEqual(entry.purchase, { p1: 0, p2: 0 });
   assert.equal(entry.flipped, null);
+  assert.equal(entry.hits, null);
+  assert.equal(entry.payouts, null);
+  assert.equal(entry.deltas, null);
+  assert.deepEqual(Object.keys(entry).sort(), ["bids", "buyers", "deltas", "flipped", "hits", "index", "payouts", "purchase", "reference", "sellers", "topBid", "void"]);
+  assert.deepEqual(game.stakes, [{ auction: 1, suit: entry.reference, buyers: ["p1"], sellers: ["p2"] }]);
 });
 
 test("all locked resolves early and the stale deadline is harmless", () => {
@@ -153,21 +161,27 @@ test("a lock and the deadline at the same instant settle exactly once, in either
   assert.deepEqual(late, [{ ok: false, error: "not_bidding" }]);
 });
 
-test("settlement applies score deltas and the flipped card becomes the reference", () => {
+test("purchase at resolve, payout at the flip, and the flipped card becomes the reference", () => {
+  // Identity shuffle: p1 holds 10 spades, p2 holds 10 hearts, and the deck is
+  // those hands in order, so cards 1..10 are spades and 11..20 hearts.
   const { clock, game } = setup();
-  const oldReference = game.reference();
+  assert.equal(game.reference(), "spades");
   game.bid("p1", { auction: 1, amount: 40, locked: true });
   game.bid("p2", { auction: 1, amount: 10, locked: true });
-  clock.advance(CONFIG.revealBidsMs);
   const entry = game.history[0];
-  assert.equal(entry.reference, oldReference);
-  assert.equal(entry.flipped, game.deck[1]);
-  assert.equal(entry.matched, entry.flipped === oldReference);
-  const expected = entry.matched ? { p1: 60, p2: -60 } : { p1: -40, p2: 40 };
-  assert.deepEqual(entry.deltas, expected);
-  assert.equal(game.players[0].score, expected.p1);
-  assert.equal(game.players[1].score, expected.p2);
-  assert.equal(game.reference(), entry.flipped);
+  assert.deepEqual(entry.purchase, { p1: -10, p2: 10 });
+  assert.equal(game.players[0].score, -10, "the buyer pays the seller's bid at resolve");
+  assert.equal(game.players[1].score, 10);
+  assert.deepEqual(game.stakes, [{ auction: 1, suit: "spades", buyers: ["p1"], sellers: ["p2"] }]);
+  clock.advance(CONFIG.revealBidsMs);
+  assert.equal(entry.flipped, "spades");
+  assert.equal(entry.hits, 1);
+  assert.deepEqual(entry.payouts, [{ from: "p2", to: "p1", amount: 10 }]);
+  assert.deepEqual(entry.deltas, { p1: 0, p2: 0 });
+  assert.equal(game.players[0].score, 0);
+  assert.equal(game.players[1].score, 0);
+  assert.equal(game.reference(), "spades");
+  assert.equal(game.flipIndex, 2);
 });
 
 test("bid validation", () => {
@@ -213,17 +227,58 @@ test("bots bid inside the window and are locked", () => {
   assert.equal(game.phase, "reveal");
 });
 
-test("a void auction records bids, no buyers, zero deltas, and still flips", () => {
+test("a void auction buys nothing but older stakes still pay on its flip", () => {
   const { clock, game } = setup();
-  game.bid("p1", { auction: 1, amount: 0, locked: true });
-  game.bid("p2", { auction: 1, amount: 0, locked: true });
-  clock.advance(CONFIG.revealBidsMs);
-  const entry = game.history[0];
+  game.bid("p1", { auction: 1, amount: 40, locked: true });
+  game.bid("p2", { auction: 1, amount: 10, locked: true });
+  clock.advance(CONFIG.revealBidsMs + CONFIG.revealCardMs);
+  assert.equal(game.auction.index, 2);
+  game.bid("p1", { auction: 2, amount: 0, locked: true });
+  game.bid("p2", { auction: 2, amount: 0, locked: true });
+  const entry = game.history[1];
   assert.equal(entry.void, true);
   assert.deepEqual(entry.buyers, []);
-  assert.deepEqual(entry.deltas, { p1: 0, p2: 0 });
-  assert.ok(entry.flipped);
-  assert.equal(game.flipIndex, 2);
+  assert.deepEqual(entry.sellers, []);
+  assert.deepEqual(entry.purchase, { p1: 0, p2: 0 });
+  assert.equal(game.stakes.length, 1, "no stake for a void auction");
+  clock.advance(CONFIG.revealBidsMs);
+  assert.equal(entry.flipped, "spades");
+  assert.equal(entry.hits, 1);
+  assert.deepEqual(entry.payouts, [{ from: "p2", to: "p1", amount: 10 }]);
+  assert.deepEqual(entry.deltas, { p1: 10, p2: -10 });
+  assert.equal(game.players[0].score, 10);
+  assert.equal(game.players[1].score, -10);
+  assert.equal(game.flipIndex, 3);
+});
+
+test("an older stake pays on a flip of its suit while the current reference is another suit", () => {
+  const { clock, game } = setup();
+  // The state machine only reads the deck, so hand-build one: spades on top,
+  // then a heart, then a spade, then the rest.
+  game.deck = ["spades", "hearts", "spades", ...Array(17).fill("hearts")];
+  assert.equal(game.reference(), "spades");
+  game.bid("p1", { auction: 1, amount: 40, locked: true });
+  game.bid("p2", { auction: 1, amount: 10, locked: true });
+  clock.advance(CONFIG.revealBidsMs);
+  assert.equal(game.history[0].flipped, "hearts");
+  assert.equal(game.history[0].hits, 0, "a heart pays no spades stake");
+  assert.deepEqual(game.history[0].deltas, { p1: -10, p2: 10 });
+  clock.advance(CONFIG.revealCardMs);
+  assert.equal(game.auction.index, 2);
+  assert.equal(game.reference(), "hearts");
+  game.bid("p1", { auction: 2, amount: 5, locked: true });
+  game.bid("p2", { auction: 2, amount: 30, locked: true });
+  assert.deepEqual(game.stakes.map((st) => st.suit), ["spades", "hearts"]);
+  clock.advance(CONFIG.revealBidsMs);
+  const entry = game.history[1];
+  assert.equal(entry.flipped, "spades");
+  assert.equal(entry.hits, 1, "the spades stake from auction 1 pays although hearts is the reference");
+  assert.deepEqual(entry.payouts, [{ from: "p2", to: "p1", amount: 10 }]);
+  // purchase: p2 bought hearts and paid p1's bid of 5; payout: p2 pays p1 10 on the spade.
+  assert.deepEqual(entry.purchase, { p1: 5, p2: -5 });
+  assert.deepEqual(entry.deltas, { p1: 15, p2: -15 });
+  assert.equal(game.players[0].score, -10 + 15);
+  assert.equal(game.players[1].score, 10 - 15);
 });
 
 function playWholeGame(clock, game) {
@@ -241,6 +296,12 @@ test("the last auction leads to results with hands revealed and no pending timer
   playWholeGame(clock, game);
   assert.equal(game.phase, "results");
   assert.equal(game.history.length, 19);
+  assert.equal(game.stakes.length, 19, "one stake per non-void auction");
+  assert.ok(game.history.every((h) => h.deltas !== null && h.payouts !== null && h.hits !== null));
+  const totals = { p1: 0, p2: 0 };
+  for (const h of game.history) for (const id of Object.keys(totals)) totals[id] += h.deltas[id];
+  assert.equal(totals.p1, game.players[0].score, "score is the sum of round deltas");
+  assert.equal(totals.p2, game.players[1].score);
   assert.equal(game.cardsRemaining(), 0);
   assert.equal(game.auction, null);
   assert.equal(clock.pending(), 0);
@@ -256,6 +317,7 @@ test("two consecutive full games in one instance share no state", () => {
   assert.equal(game.returnToLobby(), true);
   assert.equal(game.phase, "lobby");
   assert.deepEqual(game.history, []);
+  assert.deepEqual(game.stakes, []);
   assert.deepEqual(game.players, []);
   game.start([
     { id: "p1", name: "Ann", isBot: false, connected: true },
@@ -268,6 +330,7 @@ test("two consecutive full games in one instance share no state", () => {
   assert.equal(game.phase, "bidding");
   assert.equal(game.auction.index, 1);
   assert.deepEqual(game.history, []);
+  assert.deepEqual(game.stakes, []);
   assert.equal(game.deck.length, 21);
   assert.equal(game.flipIndex, 1);
   assert.equal(game.players.every((p) => p.score === 0), true);
