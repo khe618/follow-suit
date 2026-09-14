@@ -17,10 +17,10 @@ function makeRoom() {
 }
 
 // Exact allowlists. Anything not listed here is a leak, whatever it is called.
-const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "auctionIndex", "hand", "myBid", "history", "minPlayers", "maxPlayers", "handSize"].sort();
+const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "auctionIndex", "hand", "myBid", "history", "stakes", "minPlayers", "maxPlayers", "handSize"].sort();
 const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
 const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
-const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "price", "void", "flipped", "matched", "deltas"].sort();
+const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "sellers", "topBid", "void", "purchase", "flipped", "hits", "payouts", "deltas"].sort();
 
 function assertShape(state) {
   assert.deepEqual(Object.keys(state).sort(), STATE_KEYS);
@@ -46,7 +46,7 @@ test("dealing snapshot has own hand, reference, null auction, timing, and no dec
   assert.equal(s.flipped.length, 1);
   assert.equal(s.cardsRemaining, 20);
   assert.equal(s.remainingMs, 9500);
-  assert.deepEqual(s.timing, { dealMs: 9500, bidMs: 30000, revealBidsMs: 4500, revealCardMs: 5000 });
+  assert.deepEqual(s.timing, { dealMs: 9500, bidMs: 30000, revealBidsMs: 4500, revealCardMs: 6000 });
   assert.equal(s.myBid, null);
   assert.deepEqual(s.history, []);
   assert.equal(s.players.every((p) => !("hand" in p) && !("locked" in p)), true);
@@ -70,6 +70,7 @@ test("lobby snapshot lists seats and hides nothing sensitive", () => {
   assert.deepEqual(s.players.map((p) => p.id), ["p1", "p2", "p3"]);
   assert.equal(s.players[2].isBot, true);
   assert.equal(s.hand, null);
+  assert.deepEqual(s.stakes, []);
   assert.equal(s.minPlayers, 2);
   assert.equal(s.maxPlayers, 4);
   assertShape(s);
@@ -132,7 +133,7 @@ test("a resumed recipient mid-bidding gets the same public record", () => {
   clock.advance(9500);
   for (const id of ["p1", "p2"]) game.bid(id, { auction: 1, amount: 20, locked: true });
   clock.advance(6000);
-  clock.advance(4500 + 4000);
+  clock.advance(4500 + 6000);
   assert.equal(game.auction.index, 2);
   const a = buildState(room, "p1");
   const b = buildState(room, "p2");
@@ -157,6 +158,41 @@ test("reveal(bids) snapshot exposes the current auction's bids via history only"
   assertShape(s);
 });
 
+test("reveal(bids) snapshot carries the purchase in scores, the stake, and copies rather than references", () => {
+  const { room, game, clock } = makeRoom();
+  game.start([...room.seats.values()]);
+  clock.advance(9500);
+  game.bid("p1", { auction: 1, amount: 30, locked: true });
+  game.bid("p2", { auction: 1, amount: 10, locked: true });
+  clock.advance(6000);
+  assert.equal(game.phase, "reveal");
+  const s = buildState(room, "p1");
+  const h = s.history[0];
+  for (const p of s.players) assert.equal(p.score, h.purchase[p.id], `${p.id} score is the purchase delta`);
+  assert.equal(s.players.reduce((a, p) => a + p.score, 0), 0);
+  assert.equal(h.void, false);
+  assert.equal(h.flipped, null);
+  assert.equal(h.hits, null);
+  assert.equal(h.payouts, null);
+  assert.equal(h.deltas, null);
+  assert.equal(s.stakes.length, 1);
+  assert.deepEqual(s.stakes[0], game.stakes[0]);
+  s.stakes[0].buyers.push("zzz");
+  s.history[0].purchase.p1 = 999;
+  s.history[0].sellers.push("zzz");
+  assert.equal(game.stakes[0].buyers.includes("zzz"), false, "stake arrays are copied");
+  assert.notEqual(game.history[0].purchase.p1, 999, "purchase is copied");
+  assert.equal(game.history[0].sellers.includes("zzz"), false, "sellers are copied");
+  assertShape(s);
+  clock.advance(4500);
+  const c = buildState(room, "p2");
+  assert.ok(Array.isArray(c.history[0].payouts));
+  assert.equal(typeof c.history[0].hits, "number");
+  c.history[0].payouts.push({ from: "x", to: "y", amount: 1 });
+  assert.equal(game.history[0].payouts.some((p) => p.from === "x"), false, "payouts are copied");
+  assertShape(c);
+});
+
 test("results snapshot reveals every hand", () => {
   const { room, game, clock } = makeRoom();
   game.start([...room.seats.values()]);
@@ -164,7 +200,7 @@ test("results snapshot reveals every hand", () => {
   while (game.phase !== "results") {
     if (game.phase === "bidding") for (const id of ["p1", "p2"]) game.bid(id, { auction: game.auction.index, amount: 20, locked: true });
     clock.advance(6000);
-    clock.advance(9500);
+    clock.advance(10500);
   }
   const s = buildState(room, "p2");
   assert.equal(s.phase, "results");
