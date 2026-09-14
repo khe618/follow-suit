@@ -5,13 +5,15 @@ file, so it is the single source of truth for both Claude Code and Codex.
 
 ## What this is
 
-Follow Suit: a multiplayer card auction that teaches the winner's curse. Players
-bid for the right to bet that the next card flipped matches the suit of the
-current one; the highest bidder buys from everyone else at their bid. Express 5
-plus raw WebSockets (`ws`), vanilla JS in the browser, server-side bots. The
-rules are in `docs/superpowers/specs/2026-09-12-follow-suit-design.md`; the
-client (poker-table layout, dealing phase, animations, sound effects, tutorial)
-is in `docs/superpowers/specs/2026-09-13-game-feel-design.md`.
+Follow Suit: a multiplayer card auction that teaches the winner's curse. Each
+round players bid for the suit of the card on top; the highest bidder buys it
+from every other player, paying each seller that seller's own bid, and every
+later flip of that suit pays the owner 10 per seller. Express 5 plus raw
+WebSockets (`ws`), vanilla JS in the browser, server-side bots. The rules are
+in `docs/superpowers/specs/2026-09-13-suit-stakes-design.md` (which amends
+`2026-09-12-follow-suit-design.md`); the client (poker-table layout, dealing
+phase, animations, sound effects, tutorial) is in
+`docs/superpowers/specs/2026-09-13-game-feel-design.md`.
 
 ## Running locally
 
