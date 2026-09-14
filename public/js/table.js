@@ -483,10 +483,19 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.handMemo.replaceChildren();
     const cards = state.hand ? bySuit(state.hand) : [];
     const n = cards.length;
+    // A two-player hand is ten cards, which at a fixed overlap (plus the
+    // bulge the rotation adds) runs off a 360px screen and makes the whole
+    // page scroll sideways. Fit the fan to the row it actually has.
+    const CARD_W = 46;
+    const BULGE = 26;
+    const box = els.hand.clientWidth || document.documentElement.clientWidth;
+    const step = n > 1 ? Math.max(12, Math.min(CARD_W - 8, (box - CARD_W - BULGE) / (n - 1))) : CARD_W;
+    const tilt = Math.min(6, 42 / Math.max(1, n));
+    els.handFan.style.setProperty("--step", `${step.toFixed(2)}px`);
     cards.forEach((suit, i) => {
       const c = cardEl(suit, "small");
       const offset = i - (n - 1) / 2;
-      c.style.setProperty("--rot", `${offset * 6}deg`);
+      c.style.setProperty("--rot", `${(offset * tilt).toFixed(2)}deg`);
       c.style.setProperty("--lift", `${Math.abs(offset) * 3}px`);
       els.handFan.append(c);
     });

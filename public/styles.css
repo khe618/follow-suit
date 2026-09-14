@@ -287,10 +287,10 @@ label { font-size: 0.85rem; color: var(--muted); }
 .suit-chip.hearts, .suit-chip.diamonds { color: #ff8a7a; }
 
 /* hand */
-.hand { display: grid; justify-items: center; align-items: center; min-height: 78px; padding: 4px 0; }
+.hand { display: grid; justify-items: center; align-items: center; min-height: 78px; padding: 4px 0; width: 100%; }
 .hand > * { grid-area: 1 / 1; }
 .hand-fan { display: flex; justify-content: center; visibility: hidden; }
-.hand-fan .card { margin-left: -14px; transform: rotate(var(--rot, 0deg)) translateY(var(--lift, 0px)); transform-origin: 50% 120%; }
+.hand-fan .card { margin-left: calc(var(--step, 32px) - 46px); transform: rotate(var(--rot, 0deg)) translateY(var(--lift, 0px)); transform-origin: 50% 120%; }
 .hand-fan .card:first-child { margin-left: 0; }
 .hand-memo { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); }
 .hand-memo .memo-label { color: var(--muted); font-size: 0.85rem; margin-right: 3px; }
