@@ -20,7 +20,7 @@ function makeRoom() {
 const STATE_KEYS = ["type", "room", "phase", "matchId", "revealStep", "remainingMs", "timing", "you", "players", "reference", "flipped", "cardsRemaining", "auctionIndex", "hand", "myBid", "history", "stakes", "minPlayers", "maxPlayers", "handSize"].sort();
 const VISITOR_KEYS = ["type", "room", "phase", "you", "playerCount", "maxPlayers"].sort();
 const PLAYER_KEYS = ["id", "name", "isBot", "connected", "score"];
-const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "sellers", "topBid", "void", "purchase", "flipped", "hits", "payouts", "deltas"].sort();
+const HISTORY_KEYS = ["index", "reference", "bids", "buyers", "sellers", "topBid", "void", "runout", "purchase", "flipped", "hits", "payouts", "deltas"].sort();
 
 function assertShape(state) {
   assert.deepEqual(Object.keys(state).sort(), STATE_KEYS);

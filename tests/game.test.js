@@ -108,7 +108,8 @@ test("missing bids resolve to 0 at the deadline and the purchase is applied at o
   assert.equal(entry.hits, null);
   assert.equal(entry.payouts, null);
   assert.equal(entry.deltas, null);
-  assert.deepEqual(Object.keys(entry).sort(), ["bids", "buyers", "deltas", "flipped", "hits", "index", "payouts", "purchase", "reference", "sellers", "topBid", "void"]);
+  assert.equal(entry.runout, false);
+  assert.deepEqual(Object.keys(entry).sort(), ["bids", "buyers", "deltas", "flipped", "hits", "index", "payouts", "purchase", "reference", "runout", "sellers", "topBid", "void"]);
   assert.deepEqual(game.stakes, [{ auction: 1, suit: entry.reference, buyers: ["p1"], sellers: ["p2"] }]);
 });
 
@@ -296,7 +297,17 @@ test("the last auction leads to results with hands revealed and no pending timer
   playWholeGame(clock, game);
   assert.equal(game.phase, "results");
   assert.equal(game.history.length, 19);
-  assert.equal(game.stakes.length, 19, "one stake per non-void auction");
+  assert.equal(game.stakes.length, 15, "one stake per auction; the runout has none");
+  const runout = game.history.filter((h) => h.runout);
+  assert.deepEqual(runout.map((h) => h.index), [16, 17, 18, 19]);
+  assert.ok(runout.every((h) => Object.keys(h.bids).length === 0 && h.buyers.length === 0 && h.sellers.length === 0 && h.topBid === null && h.flipped === "hearts"));
+  // Cards 11..20 are hearts and p1 bought hearts at auctions 11..15. Card 15
+  // (auction 14's flip) pays four stakes at 10; card 16 (auction 15's flip,
+  // the first runout card) pays five stakes at 20; so does card 17 (runout 16).
+  assert.deepEqual(game.history[13].payouts, [{ from: "p2", to: "p1", amount: 40 }]);
+  assert.equal(game.history[14].hits, 5);
+  assert.deepEqual(game.history[14].payouts, [{ from: "p2", to: "p1", amount: 100 }]);
+  assert.deepEqual(game.history[15].payouts, [{ from: "p2", to: "p1", amount: 100 }]);
   assert.ok(game.history.every((h) => h.deltas !== null && h.payouts !== null && h.hits !== null));
   const totals = { p1: 0, p2: 0 };
   for (const h of game.history) for (const id of Object.keys(totals)) totals[id] += h.deltas[id];
@@ -308,6 +319,33 @@ test("the last auction leads to results with hands revealed and no pending timer
   assert.equal(game.players[0].hand.length, 10);
   const sum = game.players.reduce((a, p) => a + p.score, 0);
   assert.equal(sum, 0);
+});
+
+test("runout steps refuse bids, report no time left, and lead to results", () => {
+  const { clock, game } = setup();
+  while (!(game.auction && game.auction.runout)) {
+    if (game.phase === "bidding") for (const p of game.players) game.bid(p.id, { auction: game.auction.index, amount: p.id === "p1" ? 25 : 10, locked: true });
+    clock.advance(CONFIG.revealBidsMs);
+    clock.advance(CONFIG.revealCardMs);
+  }
+  assert.equal(game.phase, "reveal");
+  assert.equal(game.revealStep, "card");
+  assert.equal(game.auction.index, 16);
+  assert.equal(game.remainingMs(), 0);
+  assert.deepEqual(game.bid("p1", { auction: 16, amount: 10, locked: true }), { ok: false, error: "not_bidding" });
+  assert.equal(game.history.length, 16);
+  assert.equal(game.history[15].runout, true);
+  assert.equal(game.history[15].flipped, "hearts");
+  assert.equal(game.stakes.length, 15);
+  assert.equal(clock.pending(), 1, "one runout timer");
+  clock.advance(CONFIG.revealCardMs * 3);
+  assert.equal(game.phase, "reveal");
+  assert.equal(game.auction.index, 19);
+  clock.advance(CONFIG.revealCardMs);
+  assert.equal(game.phase, "results");
+  assert.equal(game.auction, null);
+  assert.equal(game.cardsRemaining(), 0);
+  assert.equal(clock.pending(), 0);
 });
 
 test("two consecutive full games in one instance share no state", () => {

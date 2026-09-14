@@ -74,11 +74,15 @@ test("flipping a card of a suit lowers that suit by less than one card and raise
   for (const s of ["hearts", "diamonds", "clubs"]) assert.ok(after[s] <= before[s] + 1e-12, s);
 });
 
-test("fairValue is CARD_PAYOUT times the expected remaining count of the reference suit", () => {
+test("fairValue is cardValue(cards left) times the expected remaining count of the reference suit", () => {
   const args = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 };
   const e = expectedRemaining(args);
-  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 10 * e.spades) < 1e-9);
-  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 10 * (6 + 10 * 4 / 30)) < 1e-9);
+  // 20 cards left, the last 5 double: each expected card is worth 10 * 25 / 20 = 12.5.
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * e.spades) < 1e-9);
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * (6 + 10 * 4 / 30)) < 1e-9);
+  const late = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: { spades: 5, hearts: 5, diamonds: 3, clubs: 2 }, playerCount: 2 };
+  // 5 cards left, all of them double.
+  assert.ok(Math.abs(fairValue({ ...late, reference: "clubs" }) - 20 * expectedRemaining(late).clubs) < 1e-9);
 });
 
 test("nextSuitProbabilities is expectedRemaining divided by the cards left", () => {

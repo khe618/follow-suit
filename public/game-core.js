@@ -14,6 +14,8 @@
   const MAX_PLAYERS = 4;
   const HAND_SIZES = { 2: 10, 3: 7, 4: 5 };
   const CARD_PAYOUT = 10;
+  const RUNOUT_CARDS = 5;
+  const RUNOUT_MULTIPLIER = 2;
   const MAX_BID = 100;
 
   function handSize(playerCount) {
@@ -91,7 +93,7 @@
   // CARD_PAYOUT from each of its sellers to each of its buyers. Opposing
   // obligations between the same two players are netted, so the stream list
   // holds at most one entry per unordered pair, ordered by playerIds.
-  function settleFlip(stakes, suit, playerIds) {
+  function settleFlip(stakes, suit, playerIds, perCard = CARD_PAYOUT) {
     const deltas = {};
     for (const id of playerIds) deltas[id] = 0;
     const gross = {};
@@ -103,7 +105,7 @@
     for (const stake of stakes) {
       if (stake.suit !== suit) continue;
       hits += 1;
-      for (const s of stake.sellers) for (const b of stake.buyers) owe(s, b, CARD_PAYOUT);
+      for (const s of stake.sellers) for (const b of stake.buyers) owe(s, b, perCard);
     }
     const payouts = [];
     for (const from of playerIds) {
@@ -120,6 +122,21 @@
     return { hits, payouts, deltas };
   }
 
+  // The last RUNOUT_CARDS cards of the deck are never auctioned and every
+  // stake they hit pays double. cardNumber is the card's 1-based position.
+  function isRunoutCard(cardNumber, deckSize) {
+    return cardNumber > deckSize - RUNOUT_CARDS;
+  }
+
+  // Value per counterparty of one card of a suit still to come: every
+  // remaining card is equally likely to land in any future position, and
+  // the last RUNOUT_CARDS positions pay RUNOUT_MULTIPLIER times.
+  function cardValue(cardsRemaining) {
+    if (cardsRemaining <= 0) return 0;
+    const doubled = Math.min(RUNOUT_CARDS, cardsRemaining);
+    return (CARD_PAYOUT * (cardsRemaining + doubled * (RUNOUT_MULTIPLIER - 1))) / cardsRemaining;
+  }
+
   // Expected remaining count of the reference suit (the last flipped card)
   // with no hand information: every remaining deck card is a uniformly
   // random unseen pool card. Public arithmetic, used for the dock default.
@@ -129,7 +146,7 @@
     const suit = flipped[k - 1];
     const seen = countSuits(flipped)[suit];
     const unseen = SUITS.length * POOL_PER_SUIT - k;
-    const raw = Math.round((CARD_PAYOUT * cardsRemaining * (POOL_PER_SUIT - seen)) / unseen);
+    const raw = Math.round((cardValue(cardsRemaining) * cardsRemaining * (POOL_PER_SUIT - seen)) / unseen);
     return Math.max(0, Math.min(MAX_BID, raw));
   }
 
@@ -146,7 +163,7 @@
   }
 
   return {
-    SUITS, SUIT_SYMBOLS, POOL_PER_SUIT, MIN_PLAYERS, MAX_PLAYERS, HAND_SIZES, CARD_PAYOUT, MAX_BID,
-    handSize, buildPool, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, priorValue, rank
+    SUITS, SUIT_SYMBOLS, POOL_PER_SUIT, MIN_PLAYERS, MAX_PLAYERS, HAND_SIZES, CARD_PAYOUT, RUNOUT_CARDS, RUNOUT_MULTIPLIER, MAX_BID,
+    handSize, buildPool, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, isRunoutCard, cardValue, priorValue, rank
   };
 });
