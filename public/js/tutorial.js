@@ -2,7 +2,7 @@ import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
 import { holdSpot, setAside, besideSpot, COMPARE_MS, SLIDE_MS } from "./timelines.js";
 
-const { settle, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT } = window.GameCore;
+const { settlePurchase, settleFlip, SUIT_SYMBOLS, SUITS, POOL_PER_SUIT, CARD_PAYOUT } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
@@ -19,7 +19,7 @@ function miniTable() {
     seat.className = "seat" + (i === 0 ? " you" : "");
     seat.style.left = `${positions[i].x}%`;
     seat.style.top = `${positions[i].y}%`;
-    seat.innerHTML = `<div class="bid-tag" hidden></div><div class="avatar" style="--seat-color: var(--seat-${i + 1})">${name[0]}</div><div class="seat-stack"></div><div class="seat-name">${name}</div><div class="seat-score"><span class="score-num">0</span></div>`;
+    seat.innerHTML = `<div class="bid-tag" hidden></div><div class="avatar" style="--seat-color: var(--seat-${i + 1})">${name[0]}</div><div class="seat-stack"></div><div class="seat-name">${name}</div><div class="seat-score"><span class="score-num">0</span></div><div class="seat-stakes"></div>`;
     seats.append(seat);
     return seat;
   });
@@ -44,6 +44,7 @@ function miniTable() {
     tag: (i) => seatEls[i].querySelector(".bid-tag"),
     avatar: (i) => seatEls[i].querySelector(".avatar"),
     stack: (i) => seatEls[i].querySelector(".seat-stack"),
+    stakes: (i) => seatEls[i].querySelector(".seat-stakes"),
     score: (i, v) => {
       const el = seatEls[i].querySelector(".score-num");
       el.textContent = fmt(v);
@@ -144,18 +145,45 @@ async function showTag(ctx, m, i, value, gold) {
   await ctx.animate(tag, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
 }
 
+// A suit chip lands on a seat's stake row, the way the live table shows a
+// bought suit.
+async function landStake(ctx, m, i, suit) {
+  const chip = document.createElement("span");
+  chip.className = `stake-chip ${suit}`;
+  chip.textContent = SUIT_SYMBOLS[suit];
+  m.stakes(i).replaceChildren(chip);
+  await ctx.animate(chip, [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(1.15)", opacity: 1, offset: 0.7 }, { transform: "scale(1)", opacity: 1 }], { duration: 220, easing: "ease-out" });
+}
+
+function flashPay(ctx, m) {
+  m.flash.className = "rail-flash pay";
+  ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+}
+
+// One later heart: the card turns over and 10 flies from each seller to the
+// owner (seat 0). `quick` skips the comparison beat for replays.
+async function heartPays(ctx, m, quick) {
+  if (quick) {
+    await turnReference(ctx, m, "hearts", 350);
+    flashPay(ctx, m);
+  } else {
+    await turnReference(ctx, m, "hearts", 550, () => flashPay(ctx, m));
+  }
+  await Promise.all([chips(ctx, m, 1, 0, quick ? 3 : 5), chips(ctx, m, 2, 0, quick ? 3 : 5)]);
+}
+
 const POOL = SUITS.length * POOL_PER_SUIT;
 const SLIDES = [
   {
-    caption: "Each round you bet on whether the next card matches the suit on top. Win the bet and every other player pays you 100. Most chips when the deck runs out wins.",
+    caption: "Each round you bid for the suit on top. Own it, and every later flip of that suit pays you 10 from each player who sold it to you. The last five cards skip the auction and pay double. Most chips when the deck runs out wins.",
     async run(ctx, m) {
-      m.refSlot.replaceChildren(cardEl("spades", "big"));
-      await ctx.wait(500);
-      await turnReference(ctx, m, "spades", 550, () => {
-        m.flash.className = "rail-flash good";
-        ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
-      });
-      await Promise.all([chips(ctx, m, 1, 0), chips(ctx, m, 2, 0)]);
+      m.refSlot.replaceChildren(cardEl("hearts", "big"));
+      await ctx.wait(400);
+      await landStake(ctx, m, 0, "hearts");
+      await ctx.wait(400);
+      await heartPays(ctx, m, false);
+      await ctx.wait(300);
+      await heartPays(ctx, m, true);
       await ctx.wait(1200);
     }
   },
@@ -224,9 +252,9 @@ const SLIDES = [
     }
   },
   {
-    caption: "Everyone bids 0 to 100 in secret. The highest bid buys the bet from everyone else at that price.",
+    caption: "Everyone bids 0 to 100 in secret. The highest bid wins the suit and pays each other player the price that player bid. If two tie at the top, both buy.",
     async run(ctx, m) {
-      m.refSlot.replaceChildren(cardEl("spades", "big"));
+      m.refSlot.replaceChildren(cardEl("hearts", "big"));
       await ctx.wait(300);
       await showTag(ctx, m, 2, 20, false);
       await ctx.wait(250);
@@ -234,17 +262,17 @@ const SLIDES = [
       await ctx.wait(250);
       await showTag(ctx, m, 0, 80, true);
       m.price.hidden = false;
-      m.price.textContent = "80";
+      m.price.textContent = `${SUIT_SYMBOLS.hearts} 80`;
       await ctx.animate(m.price, [{ transform: "translateX(-50%) scale(0.3)", opacity: 0 }, { transform: "translateX(-50%) scale(1)", opacity: 1 }], { duration: 220 });
       await ctx.wait(1200);
     }
   },
   {
-    caption: "Match: each other player pays the buyer 100. Miss: the buyer keeps nothing.",
+    caption: "You pay each player their bid. Every later heart pays you 10 from each of them, so a bid of 47 says you expect about 4.7 more.",
     controls: true,
     async run(ctx, m, opts) {
-      const matched = opts.matched;
-      m.refSlot.replaceChildren(cardEl("spades", "big"));
+      const n = opts.hearts;
+      m.refSlot.replaceChildren(cardEl("hearts", "big"));
       for (const [i, v] of [[0, 80], [1, 50], [2, 20]]) {
         const tag = m.tag(i);
         tag.hidden = false;
@@ -252,46 +280,40 @@ const SLIDES = [
       }
       m.seatEls[0].classList.add("buyer");
       m.price.hidden = false;
-      m.price.textContent = "80";
-      m.score(0, 0);
-      m.score(1, 0);
-      m.score(2, 0);
+      m.price.textContent = `${SUIT_SYMBOLS.hearts} 80`;
+      let scores = [0, 0, 0];
+      const paint = () => scores.forEach((v, i) => m.score(i, v));
+      paint();
       await ctx.wait(400);
       await Promise.all([chips(ctx, m, 0, 1), chips(ctx, m, 0, 2)]);
-      m.score(0, -160);
-      m.score(1, 80);
-      m.score(2, 80);
-      await ctx.wait(500);
-      const suit = matched ? "spades" : "hearts";
-      await turnReference(ctx, m, suit, 550, () => {
-        m.flash.className = `rail-flash ${matched ? "good" : "bad"}`;
-        ctx.animate(m.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
-      });
-      if (matched) {
-        await Promise.all([chips(ctx, m, 1, 0), chips(ctx, m, 2, 0)]);
-        m.score(0, 40);
-        m.score(1, -20);
-        m.score(2, -20);
+      scores = [-70, 50, 20];
+      paint();
+      await landStake(ctx, m, 0, "hearts");
+      await ctx.wait(400);
+      for (let i = 0; i < n; i++) {
+        await heartPays(ctx, m, i > 0);
+        scores = [scores[0] + 20, scores[1] - 10, scores[2] - 10];
+        paint();
+        await ctx.wait(i > 0 ? 150 : 400);
       }
-      // End on the same floating net-delta badges live play shows.
-      const deltas = matched ? [40, -20, -20] : [-160, 80, 80];
-      const badges = deltas.map((d, i) => {
+      // End on the same net-delta badges live play shows.
+      const badges = scores.map((d, i) => {
         const badge = document.createElement("div");
         badge.className = "delta-badge " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero");
         badge.textContent = fmt(d);
         m.seatEls[i].append(badge);
-        ctx.animate(badge, [{ transform: "translate(-50%, 0)", opacity: 1 }, { transform: "translate(-50%, -30px)", opacity: 0 }], { duration: 1400, easing: "ease-out", fill: "forwards" }).catch(() => {});
+        ctx.animate(badge, [{ transform: "translate(-50%, 0) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: 150, easing: "ease-out" }).catch(() => {});
         return badge;
       });
       try {
-        await ctx.wait(1400);
+        await ctx.wait(1600);
       } finally {
         for (const b of badges) b.remove();
       }
     }
   },
   {
-    caption: "Move the bids. Notice who wins the auction and who wins the money.",
+    caption: "Move the bids. Notice who wins the suit and who wins the money.",
     calculator: true
   }
 ];
@@ -302,8 +324,11 @@ export function createTutorial(dialog, { audio }) {
       <button type="button" class="icon-btn tut-close" aria-label="Close">×</button>
       <div class="tut-stage"></div>
       <div class="tut-controls" hidden>
-        <button type="button" class="chip-btn small" data-outcome="match" aria-pressed="true">Match</button>
-        <button type="button" class="chip-btn small" data-outcome="miss" aria-pressed="false">Miss</button>
+        <label class="tut-stepper">hearts to come
+          <button type="button" class="step-btn" data-step="-1" aria-label="One fewer heart">−</button>
+          <output>4</output>
+          <button type="button" class="step-btn" data-step="1" aria-label="One more heart">+</button>
+        </label>
       </div>
       <p class="tut-caption" aria-live="polite"></p>
       <div class="tut-nav">
@@ -321,7 +346,7 @@ export function createTutorial(dialog, { audio }) {
   let index = 0;
   let opener = null;
   let anim = null;
-  let matched = true;
+  let hearts = 4;
 
   for (let i = 0; i < SLIDES.length; i++) {
     const dot = document.createElement("button");
@@ -333,11 +358,12 @@ export function createTutorial(dialog, { audio }) {
   }
 
   // Last slide: the mini table stays on screen and reflects the sliders live
-  // (buyer glow, bid tags, price badge, scores), with the calculator below.
+  // (buyer glow, bid tags, winning-bid badge, stake chip, scores), with the
+  // calculator below. Net = purchase + N later hearts, N from the stepper.
   function renderCalculator(m) {
     const wrap = document.createElement("div");
     wrap.className = "calc";
-    m.refSlot.replaceChildren(cardEl("spades", "big"));
+    m.refSlot.replaceChildren(cardEl("hearts", "big"));
     const rows = NAMES.map((name, i) => {
       const row = document.createElement("div");
       row.className = "calc-row";
@@ -345,43 +371,54 @@ export function createTutorial(dialog, { audio }) {
       wrap.append(row);
       return row;
     });
-    const outcome = document.createElement("div");
-    outcome.className = "tut-controls";
-    outcome.innerHTML = `<button type="button" class="chip-btn small" data-outcome="match" aria-pressed="true">Match</button><button type="button" class="chip-btn small" data-outcome="miss" aria-pressed="false">Miss</button>`;
+    const stepper = document.createElement("label");
+    stepper.className = "tut-stepper";
+    stepper.innerHTML = `hearts to come <button type="button" class="step-btn" data-step="-1" aria-label="One fewer heart">−</button><output>4</output><button type="button" class="step-btn" data-step="1" aria-label="One more heart">+</button>`;
     const note = document.createElement("p");
     note.className = "calc-note mono";
-    wrap.append(outcome, note);
-    let calcMatched = true;
+    wrap.append(stepper, note);
+    let later = 4;
     const update = () => {
       const bids = {};
       rows.forEach((row, i) => {
         bids[NAMES[i]] = Number(row.querySelector("input").value);
         row.querySelector(".calc-bid").textContent = String(bids[NAMES[i]]);
       });
-      const r = settle(bids, calcMatched);
+      const r = settlePurchase(bids);
+      const stakes = r.void ? [] : [{ auction: 1, suit: "hearts", buyers: r.buyers, sellers: r.sellers }];
+      const flip = settleFlip(stakes, "hearts", NAMES);
       rows.forEach((row, i) => {
-        const d = r.deltas[NAMES[i]];
+        const name = NAMES[i];
+        const d = r.deltas[name] + later * flip.deltas[name];
         const cell = row.querySelector(".calc-delta");
         cell.textContent = fmt(d);
         cell.className = "calc-delta mono " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero");
-        const buyer = r.buyers.includes(NAMES[i]);
+        const buyer = r.buyers.includes(name);
         row.classList.toggle("buyer", buyer);
         m.seatEls[i].classList.toggle("buyer", buyer);
         const tag = m.tag(i);
         tag.hidden = false;
-        tag.textContent = String(bids[NAMES[i]]);
+        tag.textContent = String(bids[name]);
+        m.stakes(i).replaceChildren();
+        if (buyer) {
+          const chip = document.createElement("span");
+          chip.className = "stake-chip hearts";
+          chip.textContent = SUIT_SYMBOLS.hearts;
+          m.stakes(i).append(chip);
+        }
         m.score(i, d);
       });
       m.price.hidden = false;
-      m.price.textContent = r.void ? "no trade" : String(r.price);
+      m.price.textContent = r.void ? "no trade" : `${SUIT_SYMBOLS.hearts} ${r.topBid}`;
       m.price.classList.toggle("void", r.void);
-      note.textContent = r.void ? "no trade" : `${r.buyers.join(" & ")} ${r.buyers.length > 1 ? "buy" : "buys"} at ${r.price}`;
+      note.textContent = r.void ? "no trade" : `${r.buyers.join(" & ")} ${r.buyers.length > 1 ? "buy" : "buys"} hearts; ${later} more heart${later === 1 ? "" : "s"} pay${later === 1 ? "s" : ""} ${CARD_PAYOUT} each`;
     };
     for (const row of rows) row.querySelector("input").addEventListener("input", update);
-    for (const btn of outcome.querySelectorAll("button")) {
+    const out = stepper.querySelector("output");
+    for (const btn of stepper.querySelectorAll("button")) {
       btn.addEventListener("click", () => {
-        calcMatched = btn.dataset.outcome === "match";
-        for (const b of outcome.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
+        later = Math.max(0, Math.min(9, later + Number(btn.dataset.step)));
+        out.value = String(later);
         update();
       });
     }
@@ -406,7 +443,7 @@ export function createTutorial(dialog, { audio }) {
       return;
     }
     anim = createAnim(m.sprites);
-    anim.run((ctx) => slide.run(ctx, m, { matched })).catch((err) => {
+    anim.run((ctx) => slide.run(ctx, m, { hearts })).catch((err) => {
       console.error("[tutorial] slide failed:", err);
     });
   }
@@ -427,10 +464,11 @@ export function createTutorial(dialog, { audio }) {
   back.addEventListener("click", () => show(index - 1));
   next.addEventListener("click", () => (index === SLIDES.length - 1 ? close() : show(index + 1)));
   dialog.querySelector(".tut-close").addEventListener("click", close);
+  const stepperOut = controls.querySelector("output");
   for (const btn of controls.querySelectorAll("button")) {
     btn.addEventListener("click", () => {
-      matched = btn.dataset.outcome === "match";
-      for (const b of controls.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
+      hearts = Math.max(1, Math.min(9, hearts + Number(btn.dataset.step)));
+      stepperOut.value = String(hearts);
       show(index);
     });
   }
