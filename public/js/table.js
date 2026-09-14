@@ -21,6 +21,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), refSlot: $("refSlot"),
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), inviteBtn: $("inviteBtn"),
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
+    logSheet: $("logSheet"), logBtn: $("logBtn"), logCloseBtn: $("logCloseBtn"),
     logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidStack: $("bidStack"),
@@ -149,6 +150,49 @@ export function createTable({ send, roomCode, toast, audio }) {
     ring = next;
     return true;
   }
+
+  // On phones the log is a modal sheet; from 640px up it is simply part of
+  // the page. Openness is owned here and nowhere else.
+  const wide = matchMedia("(min-width: 640px)");
+  function syncLogSheet() {
+    if (wide.matches) {
+      if (els.logSheet.open) els.logSheet.close();
+      els.logSheet.show();
+      els.logBtn.hidden = true;
+    } else {
+      if (els.logSheet.open) els.logSheet.close();
+      els.logBtn.hidden = false;
+    }
+  }
+  function openLogSheet() {
+    if (!wide.matches && !els.logSheet.open) {
+      els.logSheet.showModal();
+      els.logCloseBtn.focus();
+    }
+  }
+  function closeLogSheet() {
+    if (!wide.matches && els.logSheet.open) els.logSheet.close();
+  }
+  wide.addEventListener("change", syncLogSheet);
+  els.logBtn.addEventListener("click", openLogSheet);
+  els.logCloseBtn.addEventListener("click", closeLogSheet);
+  els.logSheet.addEventListener("close", () => { if (!wide.matches) els.logBtn.focus(); });
+  els.logSheet.addEventListener("click", (e) => { if (e.target === els.logSheet) closeLogSheet(); });
+  syncLogSheet();
+
+  // Everything in the column that is not the table. The table is sized from
+  // what is left, so its own height must not feed back in here.
+  const chrome = [document.querySelector(".topbar"), els.hand, els.suitCounts, els.dock];
+  function measureChrome() {
+    let total = 0;
+    for (const el of chrome) {
+      if (!el || el.hidden) continue;
+      total += el.getBoundingClientRect().height;
+    }
+    document.documentElement.style.setProperty("--chrome-h", `${Math.round(total)}px`);
+  }
+  const chromeObserver = new ResizeObserver(measureChrome);
+  for (const el of chrome) if (el) chromeObserver.observe(el);
 
   const ringObserver = new ResizeObserver(() => {
     if (measureRing() && state) renderSeats();
@@ -360,7 +404,10 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
   function renderLog() {
     const show = state.phase !== "lobby";
-    els.log.hidden = !show;
+    // Availability, not openness: whether the sheet is up is owned by
+    // syncLogSheet, so a render can never reopen one the player closed.
+    els.log.dataset.available = String(show);
+    els.logBtn.disabled = !show;
     if (!show) return;
     const players = orderedPlayers(state);
     const cols = state.history.map((h) => ({ suit: h.reference, entry: h }));
@@ -463,6 +510,7 @@ export function createTable({ send, roomCode, toast, audio }) {
   function renderDock() {
     const bidding = state.phase === "bidding";
     els.dock.hidden = !bidding;
+    measureChrome();
     if (!bidding) {
       stopRing();
       renderBidStack();
@@ -685,6 +733,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     stopRing();
     clearTimeout(bidSendTimer);
     ringObserver.disconnect();
+    chromeObserver.disconnect();
     anim.cancelAll();
     resetTransient();
   }

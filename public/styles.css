@@ -133,20 +133,23 @@ label { font-size: 0.85rem; color: var(--muted); }
 .in-play { width: 14px; height: 14px; border-radius: 50%; background: var(--gold); margin: 6px auto 0; animation: pulse 1.2s ease-in-out infinite; }
 
 /* table */
-.table-view { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 12px 120px; }
+.table-view { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 12px; }
 .table {
   container-type: size;
-  position: relative; width: min(100%, 900px); aspect-ratio: 10 / 13; border-radius: 50%;
+  /* Height first: with aspect-ratio driving the width, the ratio survives
+     the clamp. A max-height on a width-driven box would squash it instead.
+     The floor is what keeps short viewports and large text usable. */
+  position: relative;
+  height: clamp(200px, calc(100dvh - var(--chrome-h, 200px) - env(safe-area-inset-bottom) - 40px), 100vh);
+  width: auto; aspect-ratio: 10 / 13; max-width: min(100%, 900px); border-radius: 50%;
   background: radial-gradient(ellipse at 50% 40%, var(--felt-light), var(--felt-mid) 60%, var(--felt-dark));
   box-shadow: inset 0 0 0 12px var(--rail), inset 0 0 0 15px var(--rail-2), inset 0 0 60px rgba(0, 0, 0, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 .table::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.06'/></svg>"); pointer-events: none; mix-blend-mode: overlay; }
 /* Below ~380px the felt is too narrow for a 92px pod beside the centre. */
-@media (max-width: 379px) { :root { --pod-w: 82px; --pod-h: 48px; } .seat .avatar { width: 32px; height: 32px; font-size: 0.9rem; } .seat-name { font-size: 0.72rem; } }
+@media (max-width: 379px) { :root { --pod-w: 82px; --pod-h: 48px; } .seat .avatar { width: 26px; height: 26px; font-size: 0.75rem; } .seat-name { font-size: 0.7rem; } }
 @media (min-width: 640px) { :root { --pod-w: 112px; --pod-h: 64px; --stake-w: 20px; --stake-h: 29px; } .seat .avatar { width: 44px; height: 44px; font-size: 1.2rem; } }
 @media (min-width: 720px) { .table { aspect-ratio: 16 / 10; } }
-/* With the log above it, the table gives up width so the memo and dock still fit below. */
-.table-view:has(#log:not([hidden])) .table { width: min(100%, 900px, max(520px, (100dvh - 430px) * 1.6)); }
 .seats, .sprite-layer { position: absolute; inset: 0; }
 .sprite-layer { pointer-events: none; z-index: 5; overflow: visible; }
 .sprite-layer .sprites { position: absolute; inset: 0; }
@@ -160,7 +163,7 @@ label { font-size: 0.85rem; color: var(--muted); }
   border-radius: 999px; background: rgba(0, 0, 0, 0.32);
   text-align: left; z-index: 2;
 }
-.seat .avatar { grid-row: 1 / 3; width: 36px; height: 36px; font-size: 1rem; }
+.seat .avatar { grid-row: 1 / 3; width: 30px; height: 30px; font-size: 0.85rem; }
 .seat.empty { width: var(--pod-w); height: var(--pod-h); padding: 0 14px; border-radius: 999px; border: 2px dashed rgba(255, 255, 255, 0.4); background: rgba(0, 0, 0, 0.25); color: rgba(255, 255, 255, 0.8); font: inherit; font-size: 0.85rem; font-weight: 700; white-space: nowrap; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .seat.empty:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.7); color: #fff; }
 .seat.empty:disabled { opacity: 0.3; cursor: default; }
@@ -168,7 +171,7 @@ label { font-size: 0.85rem; color: var(--muted); }
 .seat.you .avatar { box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--gold-2); }
 .seat.away { opacity: 0.45; }
 .seat.buyer .avatar { box-shadow: 0 0 0 3px var(--gold), 0 0 18px var(--gold); }
-.bot-mark { position: absolute; right: -6px; bottom: -4px; width: 18px; height: 18px; border-radius: 50%; background: var(--felt); color: var(--ink); font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); }
+.bot-mark { position: absolute; right: -5px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--felt); color: var(--ink); font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); }
 .seat-name { grid-column: 2; font-size: 0.78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
 .seat-score { grid-column: 2; justify-self: start; padding: 0 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.45); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
 .seat-score.pos { color: var(--good); }
@@ -205,38 +208,47 @@ label { font-size: 0.85rem; color: var(--muted); }
 .delta-badge.zero { color: var(--muted); }
 
 /* centre */
-.centre { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 18px; z-index: 1; }
-.deck { position: relative; width: 64px; height: 90px; border-radius: 8px; background: repeating-linear-gradient(45deg, var(--card-back), var(--card-back) 4px, var(--card-back-2) 4px, var(--card-back-2) 8px); box-shadow: 0 2px 0 #5a2222, 0 4px 0 #4a1a1a, 0 6px 0 #3a1414, 0 10px 18px rgba(0, 0, 0, 0.6); border: 3px solid var(--card-face); }
+/* Side pods sit at the horizontal midline and fitRadii pulls them inward,
+   so the centre gives way before they do. It scales against the table (whose
+   size is driven by the height available, not the viewport width) on the
+   smaller axis, rather than against a viewport breakpoint. */
+.centre { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: clamp(6px, 2.5cqmin, 18px); z-index: 1; }
+.deck { position: relative; width: clamp(38px, 12cqmin, 64px); height: calc(clamp(38px, 12cqmin, 64px) * 1.4); border-radius: 8px; background: repeating-linear-gradient(45deg, var(--card-back), var(--card-back) 4px, var(--card-back-2) 4px, var(--card-back-2) 8px); box-shadow: 0 2px 0 #5a2222, 0 4px 0 #4a1a1a, 0 6px 0 #3a1414, 0 10px 18px rgba(0, 0, 0, 0.6); border: 3px solid var(--card-face); }
 .deck.empty { opacity: 0.25; box-shadow: none; }
-.deck-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 800; font-size: 1.3rem; color: var(--card-face); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+.deck-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 800; font-size: clamp(0.9rem, 2.6cqmin, 1.3rem); color: var(--card-face); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
 .deck-double { position: absolute; right: -12px; top: -12px; padding: 1px 7px; border-radius: 999px; background: var(--gold); color: #1a1408; font-weight: 800; font-size: 0.75rem; font-family: ui-monospace, Menlo, Consolas, monospace; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); z-index: 2; }
-.ref-slot { width: 72px; height: 100px; border-radius: 8px; border: 2px dashed rgba(255, 255, 255, 0.25); display: flex; align-items: center; justify-content: center; }
+.ref-slot { width: clamp(42px, 13cqmin, 72px); height: calc(clamp(42px, 13cqmin, 72px) * 1.39); flex: none; border-radius: 8px; border: 2px dashed rgba(255, 255, 255, 0.25); display: flex; align-items: center; justify-content: center; }
 .price-badge { position: absolute; left: 50%; top: -34px; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px; background: var(--gold); color: #1a1408; font-weight: 800; font-family: ui-monospace, Menlo, Consolas, monospace; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); white-space: nowrap; }
 .price-badge.void { background: var(--line); color: var(--muted); }
 .lobby-centre { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-/* Side pods sit at the horizontal midline and fitRadii pulls them inward,
-   so the centre has to give way before they do. The table's own size is what
-   matters (it is driven by the height available, not the viewport width), so
-   scale against it with container units, on the smaller axis. */
-.centre { gap: clamp(6px, 2.5cqmin, 18px); }
-.deck { width: clamp(38px, 12cqmin, 64px); height: calc(clamp(38px, 12cqmin, 64px) * 1.4); }
-.ref-slot { width: clamp(42px, 13cqmin, 72px); height: calc(clamp(42px, 13cqmin, 72px) * 1.39); }
-.card.big { width: clamp(42px, 13cqmin, 72px); height: calc(clamp(42px, 13cqmin, 72px) * 1.39); font-size: clamp(1.5rem, 5cqmin, 2.6rem); }
-.deck-count { font-size: clamp(0.9rem, 2.6cqmin, 1.3rem); }
-}
 
 /* cards */
 .card { display: inline-flex; align-items: center; justify-content: center; background: var(--card-face); color: var(--black); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); font-weight: 700; user-select: none; border: 2px solid #fff; }
 .card.hearts, .card.diamonds { color: var(--red); }
 .card.down { background: repeating-linear-gradient(45deg, var(--card-back), var(--card-back) 4px, var(--card-back-2) 4px, var(--card-back-2) 8px); color: transparent; border-color: var(--card-face); }
-.card.big { width: 72px; height: 100px; font-size: 2.6rem; }
+.card.big { width: clamp(42px, 13cqmin, 72px); height: calc(clamp(42px, 13cqmin, 72px) * 1.39); font-size: clamp(1.5rem, 5cqmin, 2.6rem); flex: none; }
 .card.small { width: 46px; height: 64px; font-size: 1.6rem; }
 .card.mini { width: 24px; height: 34px; font-size: 0.9rem; border-radius: 4px; border-width: 1px; }
 .card.current { outline: 3px solid var(--gold); }
 
 /* log: cards flipped so far (left to right) and every player's bid on each */
 /* A grid so the footer (view toggle, suit counts) is exactly as wide as the table above it. */
+.log-sheet { border: none; padding: 0; margin: 0; background: transparent; color: var(--ink); max-width: none; max-height: none; }
+.log-sheet::backdrop { background: rgba(0, 0, 0, 0.65); }
+.log-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; }
+.counts-row { justify-content: center; padding: 2px 0; }
 .log { width: min(100%, 900px); display: grid; grid-template-columns: minmax(0, max-content); justify-content: end; gap: 4px; }
+@media (max-width: 639px) {
+  .log-sheet { display: none; }
+  .log-sheet[open] { display: flex; position: fixed; inset: 0; width: 100%; height: 100dvh; flex-direction: column; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--felt); }
+  .log-sheet .log { width: 100%; flex: 1; min-height: 0; justify-content: stretch; }
+  .log-sheet .log-scroll { justify-self: stretch; max-height: 100%; overflow-y: auto; }
+}
+@media (min-width: 640px) {
+  .log-sheet { position: static; display: block; width: min(100%, 900px); }
+  .log-sheet-head { justify-content: flex-end; }
+  #logCloseBtn { display: none; }
+}
 .log-scroll { justify-self: end; max-width: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0, 0, 0, 0.3); }
 .log-table { border-collapse: separate; border-spacing: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9rem; }
 .log-table th, .log-table td { padding: 2px 8px; text-align: center; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
@@ -250,7 +262,6 @@ label { font-size: 0.85rem; color: var(--muted); }
 .log-table td.current, .log-table th.log-card.current { background: rgba(224, 179, 84, 0.08); }
 .log-table td.current.buyer { background: var(--gold); }
 .log-table tbody tr:last-child th, .log-table tbody tr:last-child td { border-bottom: none; }
-.log-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .log-mode { display: flex; border: 1px solid var(--line); border-radius: 999px; background: rgba(0, 0, 0, 0.3); padding: 2px; }
 .log-mode-btn { padding: 2px 10px; border: none; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
 .log-mode-btn:hover { color: var(--ink); }

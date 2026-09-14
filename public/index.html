@@ -15,6 +15,7 @@
     <span id="connPill" class="pill warn" hidden>reconnecting</span>
     <div class="topbar-actions">
       <button type="button" id="sfxBtn" class="icon-btn" aria-label="Sound effects on" aria-pressed="true">🔊</button>
+      <button type="button" id="logBtn" class="icon-btn labeled" hidden>Log</button>
       <button type="button" id="helpBtn" class="icon-btn labeled">How to play</button>
       <button type="button" id="leaveBtn" class="icon-btn" aria-label="Leave table" hidden>⇠</button>
     </div>
@@ -45,21 +46,23 @@
     </section>
 
     <section id="tableView" class="view table-view" hidden>
-      <div id="log" class="log" hidden>
-        <div class="log-scroll">
-          <table class="log-table" aria-label="Cards and bids so far">
-            <thead><tr id="logHead"></tr></thead>
-            <tbody id="logBody"></tbody>
-          </table>
-        </div>
-        <div class="log-foot">
+      <dialog id="logSheet" class="log-sheet" aria-label="Cards and bids so far">
+        <div class="log-sheet-head">
           <div class="log-mode" role="group" aria-label="Log view">
             <button type="button" id="logBidsBtn" class="log-mode-btn" aria-pressed="true">Bids</button>
             <button type="button" id="logPayoutsBtn" class="log-mode-btn" aria-pressed="false">Payouts</button>
           </div>
-          <div id="suitCounts" class="suit-counts"></div>
+          <button type="button" id="logCloseBtn" class="icon-btn" aria-label="Close log">×</button>
         </div>
-      </div>
+        <div id="log" class="log">
+          <div class="log-scroll">
+            <table class="log-table" aria-label="Cards and bids so far">
+              <thead><tr id="logHead"></tr></thead>
+              <tbody id="logBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </dialog>
       <div id="table" class="table">
         <div id="seats" class="seats"></div>
         <div id="centre" class="centre">
@@ -73,6 +76,7 @@
         </div>
         <div id="sprites" class="sprite-layer" aria-hidden="true"></div>
       </div>
+      <div id="suitCounts" class="suit-counts counts-row" aria-label="Cards flipped by suit"></div>
       <div id="hand" class="hand">
         <div id="handFan" class="hand-fan" aria-hidden="true"></div>
         <div id="handMemo" class="hand-memo" aria-label="Your hand" hidden></div>
