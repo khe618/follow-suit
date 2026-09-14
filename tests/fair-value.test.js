@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { SUITS, buildPool, shuffle, countSuits, handSize } = require("../public/game-core.js");
-const { nextSuitProbabilities, fairValue } = require("../lib/fair-value.js");
+const { nextSuitProbabilities, expectedRemaining, fairValue } = require("../lib/fair-value.js");
 
 const zero = () => ({ spades: 0, hearts: 0, diamonds: 0, clubs: 0 });
 const sum = (p) => SUITS.reduce((a, s) => a + p[s], 0);
@@ -52,10 +52,40 @@ test("flipping a suit lowers it", () => {
   assert.ok(after.spades < before.spades);
 });
 
-test("fairValue is 100 * probability of the reference suit", () => {
+test("expectedRemaining sums to the cards left in the deck", () => {
+  const e = expectedRemaining({ hand: { spades: 4, hearts: 3, diamonds: 2, clubs: 1 }, flips: { spades: 1, hearts: 0, diamonds: 2, clubs: 0 }, playerCount: 2 });
+  assert.ok(Math.abs(sum(e) - 17) < 1e-9, String(sum(e)));
+});
+
+test("expectedRemaining with no flips equals hand + expected unseen", () => {
+  // Two players, hand 6/2/2/0: the other hand is 10 cards from the 30 pool
+  // cards left (4 spades, 8 hearts, 8 diamonds, 10 clubs).
+  const e = expectedRemaining({ hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 });
+  const expected = { spades: 6 + 10 * 4 / 30, hearts: 2 + 10 * 8 / 30, diamonds: 2 + 10 * 8 / 30, clubs: 0 + 10 * 10 / 30 };
+  for (const s of SUITS) assert.ok(Math.abs(e[s] - expected[s]) < 1e-9, `${s}: ${e[s]} vs ${expected[s]}`);
+});
+
+test("flipping a card of a suit lowers that suit by less than one card and raises no other suit", () => {
+  const args = { hand: { spades: 3, hearts: 3, diamonds: 2, clubs: 2 }, playerCount: 2 };
+  const before = expectedRemaining({ ...args, flips: zero() });
+  const after = expectedRemaining({ ...args, flips: { spades: 1, hearts: 0, diamonds: 0, clubs: 0 } });
+  assert.ok(after.spades < before.spades);
+  assert.ok(after.spades > before.spades - 1);
+  for (const s of ["hearts", "diamonds", "clubs"]) assert.ok(after[s] <= before[s] + 1e-12, s);
+});
+
+test("fairValue is CARD_PAYOUT times the expected remaining count of the reference suit", () => {
   const args = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 };
+  const e = expectedRemaining(args);
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 10 * e.spades) < 1e-9);
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 10 * (6 + 10 * 4 / 30)) < 1e-9);
+});
+
+test("nextSuitProbabilities is expectedRemaining divided by the cards left", () => {
+  const args = { hand: { spades: 4, hearts: 3, diamonds: 2, clubs: 1 }, flips: { spades: 1, hearts: 1, diamonds: 0, clubs: 0 }, playerCount: 2 };
   const p = nextSuitProbabilities(args);
-  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 100 * p.spades) < 1e-9);
+  const e = expectedRemaining(args);
+  for (const s of SUITS) assert.ok(Math.abs(p[s] - e[s] / 18) < 1e-12, s);
 });
 
 test("rejects a hand of the wrong size", () => {
