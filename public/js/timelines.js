@@ -73,7 +73,7 @@ export { COMPARE_MS };
 
 // Six chips per buyer→seller (or seller→buyer) pair, all streams in parallel,
 // each arrival ticking both seats' displayed scores. Lands exactly on `to`.
-async function payStreams(ctx, t, streams, from, to) {
+async function payStreams(ctx, t, streams, from, to, gold = false) {
   const ids = Object.keys(to);
   const current = { ...from };
   for (const id of ids) t.showScore(id, Math.round(current[id]));
@@ -82,7 +82,7 @@ async function payStreams(ctx, t, streams, from, to) {
     const b = ctx.centre(t.seatEl(s.to).querySelector(".avatar"));
     const perChip = s.amount / CHIPS_PER_STREAM;
     for (let i = 0; i < CHIPS_PER_STREAM; i++) {
-      const chip = ctx.spawn("chip-sprite");
+      const chip = ctx.spawn(gold ? "chip-sprite gold" : "chip-sprite");
       ctx.fly(chip, a, b, CHIP_MS, { arc: 40, spin: 180 }).then(() => {
         if (!ctx.alive()) return;
         chip.remove();
@@ -321,9 +321,11 @@ export async function revealCardTimeline(ctx, t, state) {
   const payoutDelta = (id) => ((last.deltas && last.deltas[id]) || 0) - ((last.purchase && last.purchase[id]) || 0);
   const hit = (last.hits || 0) > 0;
   const streams = paymentStreams(last, "card");
-  // The first runout card: the last five cards pay double from here on.
+  // The card just flipped is number state.flipped.length. The first doubled
+  // card is the payoff flip of the FINAL auction, whose history entry has
+  // runout: false - so this is derived from position, never from last.runout.
   const deckSize = state.flipped.length + state.cardsRemaining;
-  const firstRunout = state.flipped.length === deckSize - RUNOUT_CARDS + 1;
+  const doubled = state.flipped.length > deckSize - RUNOUT_CARDS;
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   // Flip: the state layer already shows the new reference. Hide it, stand in
@@ -368,20 +370,16 @@ export async function revealCardTimeline(ctx, t, state) {
   const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
   const mine = (last.deltas && last.deltas[state.you]) || 0;
   const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
-  t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
+  t.announce(`${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
   await ctx.wait(COMPARE_MS);
   els.refSlot.style.visibility = "";
   top.remove();
   old.remove();
-  if (firstRunout) {
-    audio.play("rise");
-    await pop(ctx, els.deckDouble);
-  }
 
   // Payout leg: every stake on the flipped suit, netted per pair. Then the
   // net round delta on every seat: a badge that pops in, holds still long
   // enough to read, and fades.
-  if (streams.length) await payStreams(ctx, t, streams, fromScores, toScores);
+  if (streams.length) await payStreams(ctx, t, streams, fromScores, toScores, doubled);
   else for (const id of ids) t.showScore(id, toScores[id]);
   const badges = [];
   for (const id of ids) {
@@ -406,6 +404,26 @@ export async function revealCardTimeline(ctx, t, state) {
   const fading = [els.priceBadge, ...ids.map((id) => t.seatEl(id).querySelector(".bid-tag")), ...ids.filter((id) => last.buyers.includes(id)).map((id) => t.seatEl(id).querySelector(".avatar"))];
   await ctx.until(Promise.all(fading.map((el) => ctx.animate(el, [{ opacity: 1 }, { opacity: 0.25 }], { duration: 300 }).catch(() => {}))));
   for (const el of fading) el.style.opacity = "0.25";
+}
+
+// The one-time entry into the bonus round. transitions.js decides when this
+// runs, so a reconnect never replays it and a duplicate snapshot cannot
+// either.
+export async function bonusRoundTimeline(ctx, t, state) {
+  const { els, audio } = t;
+  audio.play("rise");
+  t.announce("Bonus round. The last five cards pay double.");
+  ctx.animate(els.deck, [
+    { transform: "scale(1)" },
+    { transform: "scale(1.12)", offset: 0.35 },
+    { transform: "scale(1)" }
+  ], { duration: 700, easing: "ease-out" }).catch(() => {});
+  await ctx.animate(els.bonusBanner, [
+    { opacity: 0, transform: "translateX(-30%)" },
+    { opacity: 1, transform: "none", offset: 0.3 },
+    { opacity: 1, transform: "none", offset: 0.72 },
+    { opacity: 0, transform: "translateX(30%)" }
+  ], { duration: 900, easing: "ease-out" });
 }
 
 export async function resultsTimeline(ctx, t, state) {

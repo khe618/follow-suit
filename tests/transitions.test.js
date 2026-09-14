@@ -131,3 +131,21 @@ test("paymentStreams: sellers' bids at the purchase, netted payouts at the card"
 test("the reveal-card timeline fits inside the configured step", () => {
   assert.ok(CARD_TIMELINE_MS <= readConfig({}).game.revealCardMs, `${CARD_TIMELINE_MS} > revealCardMs`);
 });
+
+test("the bonus round gets its own bidding kind, exactly once", () => {
+  // cardsRemaining === RUNOUT_CARDS is the final auction: from here every
+  // card left pays double.
+  const bonus = snap({ auctionIndex: 16, cardsRemaining: 5 });
+  assert.equal(plan(null, bonus).kind, "bonusBidding");
+  // The same snapshot twice is an idempotent update, never a replay.
+  assert.deepEqual(kinds([bonus, bonus]), ["bonusBidding", "update"]);
+  // A reconnect mid-bonus-round draws the final frame, no cinematic.
+  assert.equal(plan(null, bonus, { hydrate: true }).kind, "hydrate");
+});
+
+test("ordinary auctions are unaffected by the bonus kind", () => {
+  assert.equal(plan(null, snap({ cardsRemaining: 12 })).kind, "bidding");
+  assert.equal(plan(null, snap({ cardsRemaining: 6 })).kind, "bidding");
+  // Only bidding; the runout's own flips are reveal steps.
+  assert.equal(plan(null, snap({ phase: "reveal", revealStep: "card", cardsRemaining: 5 })).kind, "revealCard");
+});

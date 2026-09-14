@@ -1,6 +1,6 @@
 import { emptySeat, renderLobbyCentre, initLobbyControls } from "./lobby.js";
 import { createAnim } from "./anim.js";
-import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline } from "./timelines.js";
+import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline, bonusRoundTimeline } from "./timelines.js";
 
 const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS } = window.GameCore;
 const { seatPositions, fitRadii, podFace } = window.SeatLayout;
@@ -26,7 +26,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidStack: $("bidStack"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
-    historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble")
+    recap: $("recap"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble"),
+    bonusBanner: $("bonusBanner"), bonusNote: $("bonusNote")
   };
   const seatEls = new Map();
   let state = null;
@@ -61,6 +62,9 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.priceBadge.style.visibility = "";
     els.priceBadge.style.opacity = "";
     els.deckDouble.style.visibility = "";
+    // Belt and braces: a cancelled bonus cinematic must never strand the dock.
+    els.dock.classList.remove("pending");
+    els.dock.inert = false;
     for (const el of seatEls.values()) {
       const tag = el.querySelector(".bid-tag");
       tag.style.visibility = "";
@@ -367,6 +371,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     // Stays lit through the last flip and into results (cardsRemaining hits
     // 0 exactly there); only the deck's own size, or a fresh lobby, hides it.
     els.deckDouble.hidden = lobby || state.cardsRemaining > RUNOUT_CARDS;
+    // Derived, so a reconnect mid-bonus-round lands dressed with no animation.
+    els.table.classList.toggle("bonus", !lobby && state.cardsRemaining <= RUNOUT_CARDS);
     els.refSlot.replaceChildren();
     if (!lobby && state.reference) els.refSlot.append(cardEl(state.reference, "big"));
     const last = state.history[state.history.length - 1];
@@ -504,6 +510,7 @@ export function createTable({ send, roomCode, toast, audio }) {
   function renderDock() {
     const bidding = state.phase === "bidding";
     els.dock.hidden = !bidding;
+    els.bonusNote.hidden = !bidding || state.cardsRemaining > RUNOUT_CARDS;
     measureChrome();
     if (!bidding) {
       stopRing();
@@ -644,26 +651,63 @@ export function createTable({ send, roomCode, toast, audio }) {
       li.append(medal, name, hand, score);
       els.standings.append(li);
     }
+    renderRecap();
+  }
+
+  // One cell per auction, in deck order. The bonus divider sits on the FINAL
+  // auction, because that is where doubling starts: every card still to come
+  // from there pays double. That cell keeps its buyer - it is a real auction,
+  // and the first doubled card is exactly what it pays on.
+  function renderRecap() {
     const nameOf = (id) => (state.players.find((p) => p.id === id) || { name: id }).name;
-    els.historyBody.replaceChildren();
-    for (const h of state.history) {
-      const tr = document.createElement("tr");
-      const cells = [
-        ["", String(h.index)],
-        [`suit ${h.reference}`, SUIT_SYMBOLS[h.reference]],
-        ["", h.runout ? "–" : state.players.map((p) => h.bids[p.id]).join(" / ")],
-        ["", h.runout ? "runout" : h.void ? "void" : h.buyers.map(nameOf).join(", ")],
-        [`suit ${h.flipped}`, `${SUIT_SYMBOLS[h.flipped]}${h.hits ? ` · ${h.hits} stake${h.hits === 1 ? "" : "s"}` : ""}`],
-        ["", state.players.map((p) => fmtDelta((h.deltas && h.deltas[p.id]) || 0)).join(" / ")]
-      ];
-      for (const [cls, text] of cells) {
-        const td = document.createElement("td");
-        td.className = cls;
-        td.textContent = text;
-        tr.append(td);
+    const seatIndexOf = (id) => state.players.findIndex((p) => p.id === id);
+    const deckSize = state.flipped.length + state.cardsRemaining;
+    const bonusFrom = deckSize - RUNOUT_CARDS;
+    els.recap.replaceChildren(...state.history.map((h) => {
+      const li = document.createElement("li");
+      li.className = "recap-cell" + (h.index === bonusFrom ? " bonus-start" : "");
+      // There is no single "price": topBid only decides who buys. What the
+      // buyer actually pays is every seller's own bid.
+      const paid = h.buyers.length ? -(h.purchase[h.buyers[0]] || 0) : 0;
+      const mine = (h.deltas && h.deltas[state.you]) || 0;
+      const isDoubled = h.index + 1 > bonusFrom;
+
+      const ref = cardEl(h.reference, "mini");
+      const who = document.createElement("div");
+      who.className = "recap-who";
+      if (h.runout) who.textContent = "—";
+      else if (h.void) { who.textContent = "void"; who.classList.add("void"); }
+      else {
+        // One chip per buyer, so a tie is not flattened into one name.
+        for (const id of h.buyers) {
+          const chip = document.createElement("span");
+          chip.className = "buyer-chip";
+          chip.style.background = seatColor(seatIndexOf(id));
+          chip.textContent = (nameOf(id)[0] || "?").toUpperCase();
+          who.append(chip);
+        }
+        const price = document.createElement("span");
+        price.className = "recap-paid";
+        price.textContent = String(paid);
+        who.append(price);
       }
-      els.historyBody.append(tr);
-    }
+      const flip = cardEl(h.flipped, "mini");
+      if (isDoubled) flip.classList.add("doubled");
+      const delta = document.createElement("span");
+      delta.className = "recap-delta " + (mine > 0 ? "pos" : mine < 0 ? "neg" : "zero");
+      delta.textContent = fmtDelta(mine);
+
+      for (const el of [ref, who, flip, delta]) el.setAttribute("aria-hidden", "true");
+      li.append(ref, who, flip, delta);
+      li.setAttribute("aria-label",
+        `Round ${h.index}, ${h.reference}: ` +
+        (h.runout ? "bonus round, no auction"
+          : h.void ? "no trade"
+          : `${h.buyers.map(nameOf).join(" and ")} bought for ${paid}`) +
+        `, flipped ${h.flipped}${isDoubled ? ", paying double" : ""}` +
+        `, you ${mine >= 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
+      return li;
+    }));
   }
 
   // ---------- public ----------
@@ -687,6 +731,20 @@ export function createTable({ send, roomCode, toast, audio }) {
         els.logBody.replaceChildren();
         els.suitCounts.replaceChildren();
         runTimeline((ctx) => dealTimeline(ctx, handle, next));
+        break;
+      case "bonusBidding":
+        // drawAll() has already shown the dock, and patchLive() can re-render
+        // it mid-timeline, so the banner gets its beat only if the dock is
+        // explicitly held back. The draft and the automatic default bid are
+        // unaffected: a silent player is still scored.
+        els.dock.classList.add("pending");
+        els.dock.inert = true;
+        audio.play("dealin");
+        runTimeline((ctx) => bonusRoundTimeline(ctx, handle, next).finally(() => {
+          els.dock.classList.remove("pending");
+          els.dock.inert = false;
+          els.bidInput.focus({ preventScroll: true });
+        }));
         break;
       case "bidding":
         els.dock.classList.remove("in");

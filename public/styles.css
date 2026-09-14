@@ -222,6 +222,13 @@ label { font-size: 0.85rem; color: var(--muted); }
 .price-badge.void { background: var(--line); color: var(--muted); }
 .lobby-centre { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 
+/* bonus round: the last five cards, which pay double */
+.table.bonus { background: radial-gradient(ellipse at 50% 40%, #2b7d52, #185a39 60%, #0f4529); box-shadow: inset 0 0 0 12px #6b4a1a, inset 0 0 0 15px var(--gold), inset 0 0 60px rgba(0, 0, 0, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6); }
+.bonus-banner { position: absolute; left: 0; right: 0; top: 44%; padding: 8px 0; text-align: center; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; color: #1a1408; background: linear-gradient(180deg, var(--gold-2), var(--gold)); opacity: 0; pointer-events: none; z-index: 6; }
+.bonus-note { grid-column: 2 / -1; margin: 0; text-align: center; color: var(--gold-2); font-size: 0.82rem; font-weight: 700; }
+.dock.pending { visibility: hidden; }
+.chip-sprite.gold { background: var(--gold); border-color: var(--gold-2); }
+
 /* cards */
 .card { display: inline-flex; align-items: center; justify-content: center; background: var(--card-face); color: var(--black); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); font-weight: 700; user-select: none; border: 2px solid #fff; }
 .card.hearts, .card.diamonds { color: var(--red); }
@@ -330,12 +337,19 @@ label { font-size: 0.85rem; color: var(--muted); }
 .standing .score.pos { color: var(--good); }
 .standing .score.neg { color: var(--bad); }
 .mini-hand { display: flex; gap: 2px; }
-.history-details summary { cursor: pointer; color: var(--muted); }
-.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); margin-top: 8px; }
-table.history { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-table.history th, table.history td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
-table.history th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.08em; }
-td.suit.hearts, td.suit.diamonds { color: #ff8a7a; }
+/* Round by round: one cell per auction, in deck order. */
+.recap { list-style: none; margin: 0; padding: 6px 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+.recap-cell { flex: none; display: grid; justify-items: center; align-content: start; gap: 3px; padding: 6px 5px; border-radius: 8px; background: var(--felt); border: 1px solid var(--line); }
+.recap-cell.bonus-start { border-left: 3px solid var(--gold); }
+.recap-who { display: flex; align-items: center; gap: 2px; min-height: 16px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.66rem; color: var(--muted); white-space: nowrap; }
+.recap-who.void { opacity: 0.55; }
+.buyer-chip { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; color: #101010; font-weight: 800; font-size: 0.6rem; }
+.recap-paid { margin-left: 1px; color: var(--ink); }
+.recap-delta { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.72rem; font-weight: 700; }
+.recap-delta.pos { color: var(--good); }
+.recap-delta.neg { color: var(--bad); }
+.recap-delta.zero { color: var(--muted); }
+.card.mini.doubled { outline: 2px solid var(--gold); outline-offset: 1px; }
 
 /* splash, toast */
 .splash { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; background: var(--felt); }

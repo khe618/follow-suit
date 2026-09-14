@@ -75,6 +75,7 @@
           </div>
         </div>
         <div id="sprites" class="sprite-layer" aria-hidden="true"></div>
+        <div id="bonusBanner" class="bonus-banner" aria-hidden="true">Bonus round &middot; payouts double</div>
       </div>
       <div id="suitCounts" class="suit-counts counts-row" aria-label="Cards flipped by suit"></div>
       <div id="hand" class="hand">
@@ -93,6 +94,7 @@
         </div>
         <div id="bidStack" class="bid-stack" aria-hidden="true"></div>
         <button type="button" id="lockBtn" class="chip-btn primary">Bid</button>
+        <p id="bonusNote" class="bonus-note" hidden>These last cards pay double.</p>
       </div>
     </section>
 
@@ -103,15 +105,7 @@
           <button type="button" id="playAgainBtn" class="chip-btn primary">Play again</button>
           <button type="button" id="leaveResultsBtn" class="chip-btn">Leave</button>
         </div>
-        <details class="history-details">
-          <summary>History</summary>
-          <div class="table-wrap">
-            <table class="history">
-              <thead><tr><th>#</th><th>Ref</th><th>Bids</th><th>Buyer</th><th>Flip</th><th>Score change</th></tr></thead>
-              <tbody id="historyBody"></tbody>
-            </table>
-          </div>
-        </details>
+        <ol id="recap" class="recap" aria-label="Round by round"></ol>
       </div>
     </section>
 
