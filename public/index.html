@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0b1a14">
   <title>Follow Suit</title>
-  <meta name="description" content="Follow Suit: a multiplayer card auction. Bid on whether the next card follows suit.">
+  <meta name="description" content="Follow Suit: a multiplayer card auction. Bid for the suit on top; every later flip of it pays the owner.">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -63,7 +63,7 @@
       <div id="table" class="table">
         <div id="seats" class="seats"></div>
         <div id="centre" class="centre">
-          <div id="deck" class="deck" aria-label="Deck"><span id="deckCount" class="deck-count"></span></div>
+          <div id="deck" class="deck" aria-label="Deck"><span id="deckCount" class="deck-count"></span><span id="deckDouble" class="deck-double" hidden>×2</span></div>
           <div id="refSlot" class="ref-slot"></div>
           <div id="priceBadge" class="price-badge" hidden></div>
           <div id="lobbyCentre" class="lobby-centre" hidden>
@@ -86,6 +86,7 @@
           <button type="button" id="bidDownBtn" class="step-btn" aria-label="Bid one less">−1</button>
           <input id="bidRange" type="range" min="0" max="100" step="1" value="25" aria-label="Your bid">
           <button type="button" id="bidUpBtn" class="step-btn" aria-label="Bid one more">+1</button>
+          <span id="bidHint" class="bid-hint" aria-hidden="true"></span>
         </div>
         <button type="button" id="lockBtn" class="chip-btn primary">Bid</button>
       </div>
@@ -102,7 +103,7 @@
           <summary>History</summary>
           <div class="table-wrap">
             <table class="history">
-              <thead><tr><th>#</th><th>Ref</th><th>Bids</th><th>Buyer @ price</th><th>Flip</th><th>Score change</th></tr></thead>
+              <thead><tr><th>#</th><th>Ref</th><th>Bids</th><th>Buyer</th><th>Flip</th><th>Score change</th></tr></thead>
               <tbody id="historyBody"></tbody>
             </table>
           </div>

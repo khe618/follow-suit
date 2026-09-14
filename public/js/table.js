@@ -2,12 +2,10 @@ import { emptySeat, renderLobbyCentre, initLobbyControls } from "./lobby.js";
 import { createAnim } from "./anim.js";
 import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline } from "./timelines.js";
 
-const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS } = window.GameCore;
+const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS, cardValue } = window.GameCore;
 const { seatPositions } = window.SeatLayout;
-const { displayScores } = window.Transitions;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
-const DEFAULT_BID = 25;
 const MEDALS = ["🥇", "🥈", "🥉"];
 
 export function cardEl(suit, size, down) {
@@ -25,9 +23,9 @@ export function createTable({ send, roomCode, toast, audio }) {
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
     logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
-    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
+    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidHint: $("bidHint"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
-    historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table")
+    historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble")
   };
   const seatEls = new Map();
   let state = null;
@@ -67,6 +65,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.priceBadge.style.visibility = "";
     els.priceBadge.style.opacity = "";
     els.flash.className = "rail-flash";
+    els.deckDouble.style.visibility = "";
     for (const el of seatEls.values()) {
       const tag = el.querySelector(".bid-tag");
       tag.style.visibility = "";
@@ -75,6 +74,7 @@ export function createTable({ send, roomCode, toast, audio }) {
       avatar.classList.remove("peek");
       avatar.style.opacity = "";
       for (const b of el.querySelectorAll(".delta-badge")) b.remove();
+      for (const c of el.querySelectorAll(".stake-chip")) c.style.visibility = "";
     }
     els.sprites.replaceChildren();
   }
@@ -155,6 +155,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     const num = document.createElement("span");
     num.className = "score-num";
     score.append(num);
+    const stakes = document.createElement("div");
+    stakes.className = "seat-stakes";
     const status = document.createElement("div");
     status.className = "seat-status";
     const tag = document.createElement("div");
@@ -166,7 +168,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     remove.textContent = "×";
     remove.hidden = true;
     remove.addEventListener("click", () => send({ type: "remove-bot", playerId: p.id }));
-    el.append(tag, avatar, stack, name, score, status, remove);
+    el.append(tag, avatar, stack, name, score, stakes, status, remove);
     return el;
   }
 
@@ -179,11 +181,31 @@ export function createTable({ send, roomCode, toast, audio }) {
     wrap.classList.toggle("neg", value < 0);
   }
 
+  // Stakes a player owns, per suit, from the public stake list.
+  function ownedStakes(id) {
+    const out = {};
+    for (const s of SUITS) out[s] = 0;
+    for (const st of state.stakes || []) if (st.buyers.includes(id)) out[st.suit] += 1;
+    return out;
+  }
+  function renderStakeRow(el, id) {
+    const owned = ownedStakes(id);
+    const row = el.querySelector(".seat-stakes");
+    row.replaceChildren(...SUITS.filter((s) => owned[s] > 0).map((s) => {
+      const chip = document.createElement("span");
+      chip.className = `stake-chip ${s}`;
+      chip.textContent = owned[s] > 1 ? `${SUIT_SYMBOLS[s]}×${owned[s]}` : SUIT_SYMBOLS[s];
+      return chip;
+    }));
+    return SUITS.filter((s) => owned[s] > 0).map((s) => (owned[s] > 1 ? `${s} ×${owned[s]}` : s)).join(", ");
+  }
+
   function renderSeats() {
     const players = orderedPlayers(state);
     const lobby = state.phase === "lobby";
     const positions = seatPositions(lobby ? MAX_PLAYERS : Math.max(1, players.length));
-    const scores = displayScores(state);
+    const scores = {};
+    for (const p of state.players) scores[p.id] = p.score;
     const last = state.history[state.history.length - 1];
     const inReveal = state.phase === "reveal" && last;
     const keep = new Set();
@@ -203,17 +225,18 @@ export function createTable({ send, roomCode, toast, audio }) {
       nameEl.textContent = p.name.length > 10 ? `${p.name.slice(0, 10)}…` : p.name;
       nameEl.title = p.name;
       setScore(el, scores[p.id]);
+      const holds = renderStakeRow(el, p.id);
       const status = el.querySelector(".seat-status");
       status.className = "seat-status" + (state.phase === "bidding" && p.connected ? (p.locked ? " locked" : " thinking") : "");
       const tag = el.querySelector(".bid-tag");
-      tag.hidden = !inReveal;
+      tag.hidden = !inReveal || Boolean(last.runout);
       if (inReveal) tag.textContent = String(last.bids[p.id]);
       const remove = el.querySelector(".seat-remove");
       remove.hidden = !(lobby && p.isBot);
       remove.setAttribute("aria-label", `Remove ${p.name}`);
       // Away wins over locked: the server reports a disconnected human as locked.
       const statusText = !p.connected ? "away" : state.phase === "bidding" ? (p.locked ? "bid placed" : "thinking") : "";
-      el.setAttribute("aria-label", `${p.name}, ${scores[p.id]} points${statusText ? ", " + statusText : ""}${p.isBot ? ", bot" : ""}`);
+      el.setAttribute("aria-label", `${p.name}, ${scores[p.id]} points${statusText ? ", " + statusText : ""}${holds ? ", holds " + holds : ""}${p.isBot ? ", bot" : ""}`);
     });
     for (const [id, el] of seatEls) {
       if (!keep.has(id)) {
@@ -243,13 +266,15 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.deck.classList.toggle("empty", !lobby && state.cardsRemaining === 0);
     els.deck.style.boxShadow = deckShadow(lobby ? 21 : state.cardsRemaining);
     els.deckCount.textContent = lobby ? "" : String(state.cardsRemaining);
+    els.deckDouble.hidden = lobby || state.cardsRemaining === 0 || state.cardsRemaining > RUNOUT_CARDS;
     els.refSlot.replaceChildren();
     if (!lobby && state.reference) els.refSlot.append(cardEl(state.reference, "big"));
     const last = state.history[state.history.length - 1];
-    const showPrice = state.phase === "reveal" && last;
+    const showPrice = state.phase === "reveal" && last && !last.runout;
     els.priceBadge.hidden = !showPrice;
     if (showPrice) {
-      els.priceBadge.textContent = last.void ? "no trade" : String(last.price);
+      els.priceBadge.textContent = last.void ? "no trade" : `${SUIT_SYMBOLS[last.reference]} ${last.topBid}`;
+      els.priceBadge.setAttribute("aria-label", last.void ? "no trade" : `winning bid ${last.topBid} on ${last.reference}`);
       els.priceBadge.classList.toggle("void", last.void);
     }
     if (lobby) renderLobbyCentre(els, state);
@@ -308,14 +333,19 @@ export function createTable({ send, roomCode, toast, audio }) {
         if (i === cols.length - 1) cell.classList.add("current");
         const entry = col.entry;
         if (entry && logMode === "bids") {
-          cell.textContent = String(entry.bids[p.id]);
-          if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
+          if (entry.runout) {
+            cell.textContent = "–";
+            cell.classList.add("void");
+          } else {
+            cell.textContent = String(entry.bids[p.id]);
+            if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
+          }
         } else if (entry && entry.deltas) {
           const d = entry.deltas[p.id] || 0;
-          cell.textContent = entry.void ? "–" : fmtDelta(d);
-          if (entry.void) cell.classList.add("void");
-          else if (d > 0) cell.classList.add("pos");
+          cell.textContent = fmtDelta(d);
+          if (d > 0) cell.classList.add("pos");
           else if (d < 0) cell.classList.add("neg");
+          else if (entry.void) cell.classList.add("void");
           if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
         } else {
           cell.textContent = "·";
@@ -381,12 +411,13 @@ export function createTable({ send, roomCode, toast, audio }) {
       clearTimeout(bidSendTimer);
       draft = {
         auction: state.auctionIndex,
-        amount: state.myBid ? state.myBid.amount : DEFAULT_BID,
+        amount: state.myBid ? state.myBid.amount : defaultBid(),
         locked: state.myBid ? state.myBid.locked : false
       };
       tenAnnounced = false;
       els.bidInput.value = draft.amount;
       els.bidRange.value = draft.amount;
+      paintHint();
       // The server scores a silent player at 0, so the default the dock
       // shows is sent as soon as the auction opens to make it the real bid.
       if (!state.myBid) scheduleBidSend(true);
@@ -448,15 +479,25 @@ export function createTable({ send, roomCode, toast, audio }) {
     ringTimer = null;
   }
 
+  // The public prior for the reference suit: what a silent player bids.
+  function defaultBid() {
+    return priorValue(state.flipped || [], state.cardsRemaining || 0);
+  }
+  // Prices a card with the doubled runout tail.
+  function paintHint() {
+    const unit = cardValue(state.cardsRemaining || 0);
+    els.bidHint.textContent = unit > 0 ? `${(draft.amount / unit).toFixed(1)} cards` : "";
+  }
   function setDraftAmount(raw) {
     let n = Math.round(Number(raw));
-    if (!Number.isFinite(n)) n = DEFAULT_BID;
+    if (!Number.isFinite(n)) n = defaultBid();
     n = Math.max(0, Math.min(100, n));
     draft.amount = n;
     draft.locked = false;
     els.bidRange.value = n;
     if (document.activeElement !== els.bidInput) els.bidInput.value = n;
     paintLock();
+    paintHint();
     renderBidStack();
     scheduleBidSend(false);
   }
@@ -512,9 +553,9 @@ export function createTable({ send, roomCode, toast, audio }) {
       const cells = [
         ["", String(h.index)],
         [`suit ${h.reference}`, SUIT_SYMBOLS[h.reference]],
-        ["", state.players.map((p) => h.bids[p.id]).join(" / ")],
-        ["", h.void ? `void @ ${h.price}` : `${h.buyers.map(nameOf).join(", ")} @ ${h.price}`],
-        [`suit ${h.flipped}`, `${SUIT_SYMBOLS[h.flipped]}${h.matched ? " match" : ""}`],
+        ["", h.runout ? "–" : state.players.map((p) => h.bids[p.id]).join(" / ")],
+        ["", h.runout ? "runout" : h.void ? "void" : h.buyers.map(nameOf).join(", ")],
+        [`suit ${h.flipped}`, `${SUIT_SYMBOLS[h.flipped]}${h.hits ? ` · ${h.hits} stake${h.hits === 1 ? "" : "s"}` : ""}`],
         ["", state.players.map((p) => fmtDelta((h.deltas && h.deltas[p.id]) || 0)).join(" / ")]
       ];
       for (const [cls, text] of cells) {
