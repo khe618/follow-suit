@@ -23,7 +23,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
     logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
-    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
+    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidStack: $("bidStack"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
     historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble")
   };
@@ -436,21 +436,18 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.ringArc.classList.toggle("locked", draft.locked);
   }
 
-  // Your seat shows your current bid as a chip stack that grows with the
-  // slider (spec 3.2). Only ever touches your own .seat-stack; every other
-  // phase clears it.
+  // The dock stacks a chip for every 10 you bid, so the number has a size
+  // you can see. It lives in the dock (not on your seat, where it used to
+  // cover your own avatar); every non-bidding phase clears it.
   function renderBidStack() {
-    const el = seatEls.get(state.you);
-    if (!el) return;
-    const stack = el.querySelector(".seat-stack");
-    stack.replaceChildren();
-    if (state.phase !== "bidding") return;
+    els.bidStack.replaceChildren();
+    if (!state || state.phase !== "bidding") return;
     const count = Math.ceil(draft.amount / 10);
     for (let i = 0; i < count; i++) {
       const chip = document.createElement("div");
-      chip.className = "chip-sprite stack-chip";
+      chip.className = "chip-sprite";
       chip.style.transform = `translateY(${-i * 3}px)`;
-      stack.append(chip);
+      els.bidStack.append(chip);
     }
   }
 
