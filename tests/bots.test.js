@@ -18,11 +18,14 @@ test("bot names: a pool of 40 short names, drawn at random from the free ones", 
   assert.ok(seen.size > 10, "default randomInt actually varies");
 });
 
-test("profiles cycle", () => {
+test("profiles cycle and are centred on fair value", () => {
   assert.equal(BOT_PROFILES.length, 4);
   assert.equal(botProfile(0).key, "careful");
   assert.equal(botProfile(3).key, "wild");
   assert.equal(botProfile(4).key, "careful");
+  assert.deepEqual(BOT_PROFILES.map((p) => [p.key, p.shade, p.sigma]), [
+    ["careful", 0.95, 2], ["fair", 1.0, 2], ["keen", 1.05, 3], ["wild", 1.12, 6]
+  ]);
 });
 
 test("bid is an integer in range for every profile", () => {
