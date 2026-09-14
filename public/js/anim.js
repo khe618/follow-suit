@@ -59,18 +59,21 @@ export function createAnim(layer) {
         // when the flight lands or is cancelled; never rejects, so a
         // fire-and-forget `.then` must check ctx.alive() itself. Reduced
         // motion: appear at `to` with a fade.
-        fly(el, from, to, ms, { arc = 0, spin = 0, easing = "cubic-bezier(.22,.8,.36,1)" } = {}) {
+        fly(el, from, to, ms, { arc = 0, spin = 0, scale = 1, easing = "cubic-bezier(.22,.8,.36,1)" } = {}) {
           const w = el.offsetWidth;
           const h = el.offsetHeight;
-          const at = (p, deg) => `translate(${p.x - w / 2}px, ${p.y - h / 2}px) rotate(${deg}deg)`;
+          // Scale is about the element's own centre, so the sprite's centre
+          // still lands exactly on `to` however much it shrinks.
+          const at = (p, deg, s) => `translate(${p.x - w / 2}px, ${p.y - h / 2}px) rotate(${deg}deg) scale(${s})`;
           if (reduced()) {
-            el.style.transform = at(to, 0);
+            el.style.transform = at(to, 0, scale);
             return settled(el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, fill: "forwards" }));
           }
           const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - arc };
+          const half = (1 + scale) / 2;
           const frames = arc
-            ? [{ transform: at(from, 0) }, { transform: at(mid, spin / 2), offset: 0.5 }, { transform: at(to, spin) }]
-            : [{ transform: at(from, 0) }, { transform: at(to, spin) }];
+            ? [{ transform: at(from, 0, 1) }, { transform: at(mid, spin / 2, half), offset: 0.5 }, { transform: at(to, spin, scale) }]
+            : [{ transform: at(from, 0, 1) }, { transform: at(to, spin, scale) }];
           return settled(el.animate(frames, { duration: ms, easing, fill: "forwards" }));
         },
         // Places a sprite at a centre without motion.

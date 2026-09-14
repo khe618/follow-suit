@@ -17,6 +17,7 @@ const FLIP_MS = 400;
 const TURN_MS = 620;
 const COMPARE_MS = 800;
 const HAND_MS = 250;
+const CARD_TO_BUYER_MS = 420;
 const CHIPS_PER_STREAM = 6;
 const CHIP_GAP_MS = 60;
 const CHIP_MS = 500;
@@ -72,7 +73,7 @@ export { COMPARE_MS };
 
 // Six chips per buyer→seller (or seller→buyer) pair, all streams in parallel,
 // each arrival ticking both seats' displayed scores. Lands exactly on `to`.
-async function payStreams(ctx, t, streams, from, to) {
+async function payStreams(ctx, t, streams, from, to, gold = false) {
   const ids = Object.keys(to);
   const current = { ...from };
   for (const id of ids) t.showScore(id, Math.round(current[id]));
@@ -81,7 +82,7 @@ async function payStreams(ctx, t, streams, from, to) {
     const b = ctx.centre(t.seatEl(s.to).querySelector(".avatar"));
     const perChip = s.amount / CHIPS_PER_STREAM;
     for (let i = 0; i < CHIPS_PER_STREAM; i++) {
-      const chip = ctx.spawn("chip-sprite");
+      const chip = ctx.spawn(gold ? "chip-sprite gold" : "chip-sprite");
       ctx.fly(chip, a, b, CHIP_MS, { arc: 40, spin: 180 }).then(() => {
         if (!ctx.alive()) return;
         chip.remove();
@@ -243,10 +244,30 @@ export async function revealBidsTimeline(ctx, t, state) {
   const tags = new Map(players.map((p) => [p.id, t.seatEl(p.id).querySelector(".bid-tag")]));
   for (const tag of tags.values()) tag.style.visibility = "hidden";
   els.priceBadge.style.visibility = "hidden";
-  // The state layer already drew the buyer's new stake chip; hold it back
-  // until the purchase lands.
-  const newChips = last.void ? [] : last.buyers.map((id) => t.seatEl(id).querySelector(`.stake-chip.${last.reference}`)).filter(Boolean);
-  for (const chip of newChips) chip.style.visibility = "hidden";
+  // The state layer has already drawn the post-purchase stack. Wind each one
+  // back to its pre-purchase look so the flight has something to land on.
+  // Stacks cap at four visible edges, so a purchase past the cap adds no card
+  // at all - only the count moves. That is why the count, not the card, is
+  // the thing always held back.
+  const landings = last.void ? [] : last.buyers.map((id) => {
+    const seat = t.seatEl(id);
+    const stack = seat && seat.querySelector(`.stake-stack[data-suit="${last.reference}"]`);
+    if (!stack) return null;
+    const after = Number(stack.dataset.count);
+    const edges = stack.querySelectorAll(".stake-card").length;
+    // Only hide an edge when this purchase is what added it.
+    const card = after <= edges ? stack.querySelectorAll(".stake-card")[edges - 1] : null;
+    const badge = stack.querySelector(".stake-count");
+    const wholeStack = after === 1;
+    stack.dataset.count = String(after - 1);
+    if (wholeStack) stack.style.visibility = "hidden";
+    else if (card) card.style.visibility = "hidden";
+    if (badge) {
+      if (after - 1 < 2) badge.style.visibility = "hidden";
+      else badge.textContent = String(after - 1);
+    }
+    return { stack, card, badge, after, wholeStack };
+  }).filter(Boolean);
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   const order = players.slice().sort((a, b) => last.bids[a.id] - last.bids[b.id]);
@@ -263,10 +284,35 @@ export async function revealBidsTimeline(ctx, t, state) {
   // Let the bids sink in before the chips move.
   await ctx.wait(BIDS_PAUSE_MS);
   await payStreams(ctx, t, paymentStreams(last, "bids"), fromScores, toScores);
-  // Awaited: the sequencer cancels every tracked animation the moment the
-  // timeline returns, so an un-awaited pop would never be seen.
-  if (newChips.length) audio.play("tag");
-  await ctx.until(Promise.all(newChips.map((chip) => pop(ctx, chip).catch(() => {}))));
+  // The reference card cannot leave the slot - the next flip turns onto it -
+  // so what travels to the buyer is a copy. That is also what the mechanic
+  // is: you buy a claim on the suit, not the card itself.
+  if (landings.length) {
+    audio.play("tag");
+    const slot = ctx.centre(els.refSlot);
+    // .card.small is 46px wide; shrink the copy to one stake card as it goes.
+    const stakeW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--stake-w")) || 16;
+    const scale = Math.max(0.2, Math.min(1, stakeW / 46));
+    await ctx.until(Promise.all(landings.map(async (landing) => {
+      const copy = ctx.spawn(`card small ${last.reference}`, SUIT_SYMBOLS[last.reference]);
+      ctx.put(copy, slot);
+      try {
+        await ctx.fly(copy, slot, ctx.centre(landing.stack), CARD_TO_BUYER_MS, { arc: 26, scale });
+      } finally {
+        // Restore whether or not the flight finished. A cancelled run would
+        // otherwise leave a first stake hidden, or a capped stack's badge one
+        // short, until the next full redraw.
+        copy.remove();
+        landing.stack.dataset.count = String(landing.after);
+        landing.stack.style.visibility = "";
+        if (landing.card) landing.card.style.visibility = "";
+        if (landing.badge) {
+          landing.badge.textContent = String(landing.after);
+          landing.badge.style.visibility = "";
+        }
+      }
+    })));
+  }
 }
 
 export async function revealCardTimeline(ctx, t, state) {
@@ -280,9 +326,11 @@ export async function revealCardTimeline(ctx, t, state) {
   const payoutDelta = (id) => ((last.deltas && last.deltas[id]) || 0) - ((last.purchase && last.purchase[id]) || 0);
   const hit = (last.hits || 0) > 0;
   const streams = paymentStreams(last, "card");
-  // The first runout card: the last five cards pay double from here on.
+  // The card just flipped is number state.flipped.length. The first doubled
+  // card is the payoff flip of the FINAL auction, whose history entry has
+  // runout: false - so this is derived from position, never from last.runout.
   const deckSize = state.flipped.length + state.cardsRemaining;
-  const firstRunout = state.flipped.length === deckSize - RUNOUT_CARDS + 1;
+  const doubled = state.flipped.length > deckSize - RUNOUT_CARDS;
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   // Flip: the state layer already shows the new reference. Hide it, stand in
@@ -305,27 +353,38 @@ export async function revealCardTimeline(ctx, t, state) {
   });
   const myPayout = payoutDelta(state.you);
   audio.play(myPayout > 0 ? "match" : myPayout < 0 ? "miss" : "tap");
+  // Local feedback rather than flashing the whole felt: ring the card that
+  // just landed, and pulse the stacks it actually pays. Tracked animations,
+  // so the sequencer cancels them and reduced motion is handled for us.
   if (hit) {
-    els.flash.className = "rail-flash pay";
-    ctx.animate(els.flash, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500 }).catch(() => {});
+    ctx.animate(top, [
+      { boxShadow: "0 2px 6px rgba(0, 0, 0, 0.45)" },
+      { boxShadow: "0 0 0 3px #e0b354, 0 0 18px #e0b354", offset: 0.35 },
+      { boxShadow: "0 2px 6px rgba(0, 0, 0, 0.45)" }
+    ], { duration: 700, easing: "ease-out" }).catch(() => {});
+    for (const id of ids) {
+      const stack = t.seatEl(id) && t.seatEl(id).querySelector(`.stake-stack[data-suit="${last.flipped}"]`);
+      if (!stack) continue;
+      ctx.animate(stack, [
+        { transform: "scale(1)" },
+        { transform: "scale(1.18)", offset: 0.4 },
+        { transform: "scale(1)" }
+      ], { duration: 600, easing: "ease-out" }).catch(() => {});
+    }
   }
   const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
   const mine = (last.deltas && last.deltas[state.you]) || 0;
   const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
-  t.announce(`${firstRunout ? "Final five cards, payouts double. " : ""}${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
+  t.announce(`${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
   await ctx.wait(COMPARE_MS);
   els.refSlot.style.visibility = "";
   top.remove();
   old.remove();
-  if (firstRunout) {
-    audio.play("rise");
-    await pop(ctx, els.deckDouble);
-  }
 
   // Payout leg: every stake on the flipped suit, netted per pair. Then the
   // net round delta on every seat: a badge that pops in, holds still long
   // enough to read, and fades.
-  if (streams.length) await payStreams(ctx, t, streams, fromScores, toScores);
+  if (streams.length) await payStreams(ctx, t, streams, fromScores, toScores, doubled);
   else for (const id of ids) t.showScore(id, toScores[id]);
   const badges = [];
   for (const id of ids) {
@@ -335,7 +394,7 @@ export async function revealCardTimeline(ctx, t, state) {
     badge.textContent = fmtDelta(d);
     t.seatEl(id).append(badge);
     badges.push(badge);
-    ctx.animate(badge, [{ transform: "translate(-50%, 0) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
+    ctx.animate(badge, [{ transform: "translate(-50%, -50%) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, -50%) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
   }
   try {
     await ctx.wait(DELTA_IN_MS + DELTA_HOLD_MS);
@@ -350,6 +409,26 @@ export async function revealCardTimeline(ctx, t, state) {
   const fading = [els.priceBadge, ...ids.map((id) => t.seatEl(id).querySelector(".bid-tag")), ...ids.filter((id) => last.buyers.includes(id)).map((id) => t.seatEl(id).querySelector(".avatar"))];
   await ctx.until(Promise.all(fading.map((el) => ctx.animate(el, [{ opacity: 1 }, { opacity: 0.25 }], { duration: 300 }).catch(() => {}))));
   for (const el of fading) el.style.opacity = "0.25";
+}
+
+// The one-time entry into the bonus round. transitions.js decides when this
+// runs, so a reconnect never replays it and a duplicate snapshot cannot
+// either.
+export async function bonusRoundTimeline(ctx, t, state) {
+  const { els, audio } = t;
+  audio.play("rise");
+  t.announce("Bonus round. The last five cards pay double.");
+  ctx.animate(els.deck, [
+    { transform: "scale(1)" },
+    { transform: "scale(1.12)", offset: 0.35 },
+    { transform: "scale(1)" }
+  ], { duration: 700, easing: "ease-out" }).catch(() => {});
+  await ctx.animate(els.bonusBanner, [
+    { opacity: 0, transform: "translateX(-30%)" },
+    { opacity: 1, transform: "none", offset: 0.3 },
+    { opacity: 1, transform: "none", offset: 0.72 },
+    { opacity: 0, transform: "translateX(30%)" }
+  ], { duration: 900, easing: "ease-out" });
 }
 
 export async function resultsTimeline(ctx, t, state) {

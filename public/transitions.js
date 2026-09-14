@@ -19,6 +19,13 @@
   // checks it against the config default.
   const CARD_TIMELINE_MS = 5000;
 
+  // The UMD factory takes no arguments, so the wrapper's `root` is not in
+  // scope here: reach for the global directly in the browser.
+  const GameCore = (typeof module === "object" && module.exports)
+    ? require("./game-core.js")
+    : (typeof self !== "undefined" ? self : this).GameCore;
+  const RUNOUT_CARDS = GameCore.RUNOUT_CARDS;
+
   function transitionKey(s) {
     let key = `${s.matchId}:${s.phase}:${s.revealStep || ""}:${s.auctionIndex || 0}`;
     if (s.phase === "lobby") key += ":" + s.players.map((p) => p.id).join(",");
@@ -36,7 +43,10 @@
       case "dealing":
         return { key, kind: next.remainingMs >= DEAL_TIMELINE_MS ? "deal" : "hydrate" };
       case "bidding":
-        return { key, kind: "bidding" };
+        // The bonus round starts at the final auction, when every card still
+        // to come pays double - the one auction where not knowing about the
+        // doubling costs the most.
+        return { key, kind: next.cardsRemaining === RUNOUT_CARDS ? "bonusBidding" : "bidding" };
       case "reveal":
         return { key, kind: next.revealStep === "card" ? "revealCard" : "revealBids" };
       case "results":

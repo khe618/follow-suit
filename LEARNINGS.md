@@ -4,6 +4,16 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 
 ---
 
+## 2026-09-14 — The first doubled card belongs to a `runout: false` history entry
+
+**Symptom / context:** Building the bonus-round dressing and the results recap, the obvious derivation — "this flip pays double if `last.runout`" — silently missed the single most important doubled payout, and grouped the recap one cell off.
+
+**Root cause:** `advance()` checks `isRunoutCard(game.flipIndex, deckSize)` against the card *just flipped* (the would-be next reference), so the last auction is the one whose reference is card `m-5`. Its payoff flip is card `m-4`, which is already inside the doubled tail — but it is settled by `flipAndPay()` on that auction's own history entry, which has `runout: false`. Only the remaining four cards get `runout: true` entries. So a 20-card deck has five doubled flips but only four runout entries.
+
+**Fix / what to do next time:** Never derive doubling from the `runout` flag. Use card position: `deckSize = state.flipped.length + state.cardsRemaining`, and card number `n` is doubled iff `n > deckSize - RUNOUT_CARDS`. In `revealCardTimeline` the card just flipped is number `state.flipped.length`. Verified empirically: gold payout chips separated 126/0 in the bonus round against 0/210 in normal rounds. Related: the bonus round is defined to *start* at the final auction (`cardsRemaining <= RUNOUT_CARDS`), which is also when the ×2 deck badge already appeared.
+
+**Refs:** `lib/game.js` `advance`/`flipAndPay`/`runoutStep`; `public/js/timelines.js` `revealCardTimeline` (`doubled`); `public/js/table.js` `renderRecap`; `AGENTS.md` architecture notes; commit 66c0dcd.
+
 ## 2026-09-13 — A `document.activeElement` guard froze the bid number, because the dock focuses it for the whole auction
 
 **Symptom / context:** Dragging the dock's bid slider moved the slider and the bid stack but left the big ring number stale (slider 77, number still 55). Nothing threw, and the bid actually sent was the slider's value, so only the number lied.

@@ -1,9 +1,9 @@
 import { emptySeat, renderLobbyCentre, initLobbyControls } from "./lobby.js";
 import { createAnim } from "./anim.js";
-import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline } from "./timelines.js";
+import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline, bonusRoundTimeline } from "./timelines.js";
 
 const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS } = window.GameCore;
-const { seatPositions } = window.SeatLayout;
+const { seatPositions, fitRadii, podFace } = window.SeatLayout;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -21,11 +21,13 @@ export function createTable({ send, roomCode, toast, audio }) {
     seats: $("seats"), deck: $("deck"), deckCount: $("deckCount"), refSlot: $("refSlot"),
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), inviteBtn: $("inviteBtn"),
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
+    logSheet: $("logSheet"), logBtn: $("logBtn"), logCloseBtn: $("logCloseBtn"),
     logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
-    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
+    bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"), bidStack: $("bidStack"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
-    historyBody: $("historyBody"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble")
+    recap: $("recap"), playAgainBtn: $("playAgainBtn"), table: $("table"), deckDouble: $("deckDouble"),
+    bonusBanner: $("bonusBanner"), bonusNote: $("bonusNote")
   };
   const seatEls = new Map();
   let state = null;
@@ -40,11 +42,6 @@ export function createTable({ send, roomCode, toast, audio }) {
   let connected = true;
 
   const anim = createAnim(els.sprites);
-  // The rail flash is an overlay whose opacity animates (transform/opacity
-  // only, per spec); box-shadow itself never animates.
-  els.flash = document.createElement("div");
-  els.flash.className = "rail-flash";
-  els.table.append(els.flash);
 
   // Writes a displayed score without touching state (timelines tick these).
   function showScore(id, value) {
@@ -64,8 +61,10 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.refSlot.style.visibility = "";
     els.priceBadge.style.visibility = "";
     els.priceBadge.style.opacity = "";
-    els.flash.className = "rail-flash";
     els.deckDouble.style.visibility = "";
+    // Belt and braces: a cancelled bonus cinematic must never strand the dock.
+    els.dock.classList.remove("pending");
+    els.dock.inert = false;
     for (const el of seatEls.values()) {
       const tag = el.querySelector(".bid-tag");
       tag.style.visibility = "";
@@ -74,7 +73,9 @@ export function createTable({ send, roomCode, toast, audio }) {
       avatar.classList.remove("peek");
       avatar.style.opacity = "";
       for (const b of el.querySelectorAll(".delta-badge")) b.remove();
-      for (const c of el.querySelectorAll(".stake-chip")) c.style.visibility = "";
+      for (const k of el.querySelectorAll(".stake-stack")) k.style.visibility = "";
+      for (const c of el.querySelectorAll(".stake-card")) c.style.visibility = "";
+      for (const b of el.querySelectorAll(".stake-count")) b.style.visibility = "";
     }
     els.sprites.replaceChildren();
   }
@@ -125,6 +126,79 @@ export function createTable({ send, roomCode, toast, audio }) {
   function seatColor(index) {
     return `var(--seat-${(index % 6) + 1})`;
   }
+  // The seat ring is fitted to the felt actually on screen, so pods never
+  // hang over the rail at phone widths. fitRadii is an exact maximal fit,
+  // which would leave pod corners sitting right on the rail; this much
+  // clearance per side is added here so they sit visibly inside it.
+  const POD_CLEARANCE = 5;
+  let ring = { rx: 44, ry: 42 };
+  function measureRing() {
+    const box = els.table.getBoundingClientRect();
+    if (!box.width || !box.height) return false;
+    const css = getComputedStyle(document.documentElement);
+    const podW = parseFloat(css.getPropertyValue("--pod-w")) || 92;
+    const podH = parseFloat(css.getPropertyValue("--pod-h")) || 52;
+    const next = fitRadii({
+      tableW: box.width, tableH: box.height,
+      podW: podW + POD_CLEARANCE * 2, podH: podH + POD_CLEARANCE * 2, railPx: 15
+    });
+    if (next.rx === ring.rx && next.ry === ring.ry) return false;
+    ring = next;
+    return true;
+  }
+
+  // On phones the log is a modal sheet; from 640px up it is simply part of
+  // the page. Openness is owned here and nowhere else.
+  const wide = matchMedia("(min-width: 640px)");
+  function syncLogSheet() {
+    if (wide.matches) {
+      if (els.logSheet.open) els.logSheet.close();
+      els.logSheet.show();
+      els.logBtn.hidden = true;
+    } else {
+      if (els.logSheet.open) els.logSheet.close();
+      els.logBtn.hidden = false;
+    }
+  }
+  function openLogSheet() {
+    if (!wide.matches && !els.logSheet.open) {
+      els.logSheet.showModal();
+      els.logCloseBtn.focus();
+    }
+  }
+  function closeLogSheet() {
+    if (!wide.matches && els.logSheet.open) els.logSheet.close();
+  }
+  // createTable runs again on every rejoin (app.js) against the same static
+  // DOM, so these have to come off again in dispose or they stack up.
+  const teardown = new AbortController();
+  const on = { signal: teardown.signal };
+  wide.addEventListener("change", syncLogSheet, on);
+  els.logBtn.addEventListener("click", openLogSheet, on);
+  els.logCloseBtn.addEventListener("click", closeLogSheet, on);
+  els.logSheet.addEventListener("close", () => { if (!wide.matches) els.logBtn.focus(); }, on);
+  els.logSheet.addEventListener("click", (e) => { if (e.target === els.logSheet) closeLogSheet(); }, on);
+  syncLogSheet();
+
+  // Everything in the column that is not the table. The table is sized from
+  // what is left, so its own height must not feed back in here.
+  const chrome = [document.querySelector(".topbar"), els.hand, els.suitCounts, els.dock];
+  function measureChrome() {
+    let total = 0;
+    for (const el of chrome) {
+      if (!el || el.hidden) continue;
+      total += el.getBoundingClientRect().height;
+    }
+    document.documentElement.style.setProperty("--chrome-h", `${Math.round(total)}px`);
+  }
+  const chromeObserver = new ResizeObserver(measureChrome);
+  for (const el of chrome) if (el) chromeObserver.observe(el);
+
+  const ringObserver = new ResizeObserver(() => {
+    if (measureRing() && state) renderSeats();
+  });
+  ringObserver.observe(els.table);
+
   function place(el, pos) {
     el.style.left = `${pos.x}%`;
     el.style.top = `${pos.y}%`;
@@ -146,8 +220,6 @@ export function createTable({ send, roomCode, toast, audio }) {
       mark.setAttribute("aria-hidden", "true");
       avatar.append(mark);
     }
-    const stack = document.createElement("div");
-    stack.className = "seat-stack";
     const name = document.createElement("div");
     name.className = "seat-name";
     const score = document.createElement("div");
@@ -168,7 +240,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     remove.textContent = "×";
     remove.hidden = true;
     remove.addEventListener("click", () => send({ type: "remove-bot", playerId: p.id }));
-    el.append(tag, avatar, stack, name, score, stakes, status, remove);
+    el.append(tag, avatar, name, score, stakes, status, remove);
     return el;
   }
 
@@ -188,22 +260,49 @@ export function createTable({ send, roomCode, toast, audio }) {
     for (const st of state.stakes || []) if (st.buyers.includes(id)) out[st.suit] += 1;
     return out;
   }
+  // One stack of real cards per suit owned. Up to STACK_EDGES overlapping
+  // edges, then a count badge: seven spades read as four edges and a "7",
+  // never as seven cards of width.
+  // Visible edges per stack, by how many suits are held. Four suits at four
+  // edges each would be ~210px against a 92px pod, so the row tightens as it
+  // fills; the count badge always carries the true number either way.
+  const STACK_EDGES = [4, 3, 2, 1];
+  const STACK_STEP = 0.7;
   function renderStakeRow(el, id) {
     const owned = ownedStakes(id);
+    const suits = SUITS.filter((s) => owned[s] > 0);
     const row = el.querySelector(".seat-stakes");
-    row.replaceChildren(...SUITS.filter((s) => owned[s] > 0).map((s) => {
-      const chip = document.createElement("span");
-      chip.className = `stake-chip ${s}`;
-      chip.textContent = owned[s] > 1 ? `${SUIT_SYMBOLS[s]}×${owned[s]}` : SUIT_SYMBOLS[s];
-      return chip;
+    row.replaceChildren(...suits.map((s) => {
+      const stack = document.createElement("div");
+      stack.className = "stake-stack";
+      stack.dataset.suit = s;
+      stack.dataset.count = String(owned[s]);
+      const edges = Math.min(STACK_EDGES[suits.length - 1], owned[s]);
+      for (let i = 0; i < edges; i++) {
+        const card = document.createElement("div");
+        card.className = `stake-card ${s}`;
+        // Offsets are card widths, not stack widths: the stack is wider
+        // than one card, so a percentage here would spread them far apart.
+        card.style.left = `calc(var(--stake-w) * ${(i * STACK_STEP).toFixed(2)})`;
+        card.textContent = i === edges - 1 ? SUIT_SYMBOLS[s] : "";
+        stack.append(card);
+      }
+      stack.style.width = `calc(var(--stake-w) * ${(1 + (edges - 1) * STACK_STEP).toFixed(2)})`;
+      if (owned[s] > 1) {
+        const badge = document.createElement("span");
+        badge.className = "stake-count";
+        badge.textContent = String(owned[s]);
+        stack.append(badge);
+      }
+      return stack;
     }));
-    return SUITS.filter((s) => owned[s] > 0).map((s) => (owned[s] > 1 ? `${s} ×${owned[s]}` : s)).join(", ");
+    return suits.map((s) => `${owned[s]} ${s}`).join(", ");
   }
 
   function renderSeats() {
     const players = orderedPlayers(state);
     const lobby = state.phase === "lobby";
-    const positions = seatPositions(lobby ? MAX_PLAYERS : Math.max(1, players.length));
+    const positions = seatPositions(lobby ? MAX_PLAYERS : Math.max(1, players.length), ring);
     const scores = {};
     for (const p of state.players) scores[p.id] = p.score;
     const last = state.history[state.history.length - 1];
@@ -218,6 +317,7 @@ export function createTable({ send, roomCode, toast, audio }) {
       }
       keep.add(p.id);
       place(el, positions[i]);
+      el.dataset.face = podFace(positions[i]);
       el.classList.toggle("you", p.id === state.you);
       el.classList.toggle("away", !p.connected);
       el.classList.toggle("buyer", Boolean(inReveal && last.buyers.includes(p.id)));
@@ -246,7 +346,11 @@ export function createTable({ send, roomCode, toast, audio }) {
     }
     for (const e of els.seats.querySelectorAll(".seat.empty")) e.remove();
     if (lobby) {
-      for (let i = players.length; i < MAX_PLAYERS; i++) els.seats.append(emptySeat(positions[i], false, send));
+      for (let i = players.length; i < MAX_PLAYERS; i++) {
+        const seat = emptySeat(positions[i], false, send);
+        seat.dataset.face = podFace(positions[i]);
+        els.seats.append(seat);
+      }
     }
   }
 
@@ -269,6 +373,8 @@ export function createTable({ send, roomCode, toast, audio }) {
     // Stays lit through the last flip and into results (cardsRemaining hits
     // 0 exactly there); only the deck's own size, or a fresh lobby, hides it.
     els.deckDouble.hidden = lobby || state.cardsRemaining > RUNOUT_CARDS;
+    // Derived, so a reconnect mid-bonus-round lands dressed with no animation.
+    els.table.classList.toggle("bonus", !lobby && state.cardsRemaining <= RUNOUT_CARDS);
     els.refSlot.replaceChildren();
     if (!lobby && state.reference) els.refSlot.append(cardEl(state.reference, "big"));
     const last = state.history[state.history.length - 1];
@@ -300,7 +406,10 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
   function renderLog() {
     const show = state.phase !== "lobby";
-    els.log.hidden = !show;
+    // Availability, not openness: whether the sheet is up is owned by
+    // syncLogSheet, so a render can never reopen one the player closed.
+    els.log.dataset.available = String(show);
+    els.logBtn.disabled = !show;
     if (!show) return;
     const players = orderedPlayers(state);
     const cols = state.history.map((h) => ({ suit: h.reference, entry: h }));
@@ -376,10 +485,19 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.handMemo.replaceChildren();
     const cards = state.hand ? bySuit(state.hand) : [];
     const n = cards.length;
+    // A two-player hand is ten cards, which at a fixed overlap (plus the
+    // bulge the rotation adds) runs off a 360px screen and makes the whole
+    // page scroll sideways. Fit the fan to the row it actually has.
+    const CARD_W = 46;
+    const BULGE = 26;
+    const box = els.hand.clientWidth || document.documentElement.clientWidth;
+    const step = n > 1 ? Math.max(12, Math.min(CARD_W - 8, (box - CARD_W - BULGE) / (n - 1))) : CARD_W;
+    const tilt = Math.min(6, 42 / Math.max(1, n));
+    els.handFan.style.setProperty("--step", `${step.toFixed(2)}px`);
     cards.forEach((suit, i) => {
       const c = cardEl(suit, "small");
       const offset = i - (n - 1) / 2;
-      c.style.setProperty("--rot", `${offset * 6}deg`);
+      c.style.setProperty("--rot", `${(offset * tilt).toFixed(2)}deg`);
       c.style.setProperty("--lift", `${Math.abs(offset) * 3}px`);
       els.handFan.append(c);
     });
@@ -403,6 +521,8 @@ export function createTable({ send, roomCode, toast, audio }) {
   function renderDock() {
     const bidding = state.phase === "bidding";
     els.dock.hidden = !bidding;
+    els.bonusNote.hidden = !bidding || state.cardsRemaining > RUNOUT_CARDS;
+    measureChrome();
     if (!bidding) {
       stopRing();
       renderBidStack();
@@ -436,21 +556,18 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.ringArc.classList.toggle("locked", draft.locked);
   }
 
-  // Your seat shows your current bid as a chip stack that grows with the
-  // slider (spec 3.2). Only ever touches your own .seat-stack; every other
-  // phase clears it.
+  // The dock stacks a chip for every 10 you bid, so the number has a size
+  // you can see. It lives in the dock (not on your seat, where it used to
+  // cover your own avatar); every non-bidding phase clears it.
   function renderBidStack() {
-    const el = seatEls.get(state.you);
-    if (!el) return;
-    const stack = el.querySelector(".seat-stack");
-    stack.replaceChildren();
-    if (state.phase !== "bidding") return;
+    els.bidStack.replaceChildren();
+    if (!state || state.phase !== "bidding") return;
     const count = Math.ceil(draft.amount / 10);
     for (let i = 0; i < count; i++) {
       const chip = document.createElement("div");
-      chip.className = "chip-sprite stack-chip";
+      chip.className = "chip-sprite";
       chip.style.transform = `translateY(${-i * 3}px)`;
-      stack.append(chip);
+      els.bidStack.append(chip);
     }
   }
 
@@ -545,26 +662,63 @@ export function createTable({ send, roomCode, toast, audio }) {
       li.append(medal, name, hand, score);
       els.standings.append(li);
     }
+    renderRecap();
+  }
+
+  // One cell per auction, in deck order. The bonus divider sits on the FINAL
+  // auction, because that is where doubling starts: every card still to come
+  // from there pays double. That cell keeps its buyer - it is a real auction,
+  // and the first doubled card is exactly what it pays on.
+  function renderRecap() {
     const nameOf = (id) => (state.players.find((p) => p.id === id) || { name: id }).name;
-    els.historyBody.replaceChildren();
-    for (const h of state.history) {
-      const tr = document.createElement("tr");
-      const cells = [
-        ["", String(h.index)],
-        [`suit ${h.reference}`, SUIT_SYMBOLS[h.reference]],
-        ["", h.runout ? "–" : state.players.map((p) => h.bids[p.id]).join(" / ")],
-        ["", h.runout ? "runout" : h.void ? "void" : h.buyers.map(nameOf).join(", ")],
-        [`suit ${h.flipped}`, `${SUIT_SYMBOLS[h.flipped]}${h.hits ? ` · ${h.hits} stake${h.hits === 1 ? "" : "s"}` : ""}`],
-        ["", state.players.map((p) => fmtDelta((h.deltas && h.deltas[p.id]) || 0)).join(" / ")]
-      ];
-      for (const [cls, text] of cells) {
-        const td = document.createElement("td");
-        td.className = cls;
-        td.textContent = text;
-        tr.append(td);
+    const seatIndexOf = (id) => state.players.findIndex((p) => p.id === id);
+    const deckSize = state.flipped.length + state.cardsRemaining;
+    const bonusFrom = deckSize - RUNOUT_CARDS;
+    els.recap.replaceChildren(...state.history.map((h) => {
+      const li = document.createElement("li");
+      li.className = "recap-cell" + (h.index === bonusFrom ? " bonus-start" : "");
+      // There is no single "price": topBid only decides who buys. What the
+      // buyer actually pays is every seller's own bid.
+      const paid = h.buyers.length ? -(h.purchase[h.buyers[0]] || 0) : 0;
+      const mine = (h.deltas && h.deltas[state.you]) || 0;
+      const isDoubled = h.index + 1 > bonusFrom;
+
+      const ref = cardEl(h.reference, "mini");
+      const who = document.createElement("div");
+      who.className = "recap-who";
+      if (h.runout) who.textContent = "—";
+      else if (h.void) { who.textContent = "void"; who.classList.add("void"); }
+      else {
+        // One chip per buyer, so a tie is not flattened into one name.
+        for (const id of h.buyers) {
+          const chip = document.createElement("span");
+          chip.className = "buyer-chip";
+          chip.style.background = seatColor(seatIndexOf(id));
+          chip.textContent = (nameOf(id)[0] || "?").toUpperCase();
+          who.append(chip);
+        }
+        const price = document.createElement("span");
+        price.className = "recap-paid";
+        price.textContent = String(paid);
+        who.append(price);
       }
-      els.historyBody.append(tr);
-    }
+      const flip = cardEl(h.flipped, "mini");
+      if (isDoubled) flip.classList.add("doubled");
+      const delta = document.createElement("span");
+      delta.className = "recap-delta " + (mine > 0 ? "pos" : mine < 0 ? "neg" : "zero");
+      delta.textContent = fmtDelta(mine);
+
+      for (const el of [ref, who, flip, delta]) el.setAttribute("aria-hidden", "true");
+      li.append(ref, who, flip, delta);
+      li.setAttribute("aria-label",
+        `Round ${h.index}, ${h.reference}: ` +
+        (h.runout ? "bonus round, no auction"
+          : h.void ? "no trade"
+          : `${h.buyers.map(nameOf).join(" and ")} bought for ${paid}`) +
+        `, flipped ${h.flipped}${isDoubled ? ", paying double" : ""}` +
+        `, you ${mine >= 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
+      return li;
+    }));
   }
 
   // ---------- public ----------
@@ -588,6 +742,22 @@ export function createTable({ send, roomCode, toast, audio }) {
         els.logBody.replaceChildren();
         els.suitCounts.replaceChildren();
         runTimeline((ctx) => dealTimeline(ctx, handle, next));
+        break;
+      case "bonusBidding":
+        // drawAll() has already shown the dock, and patchLive() can re-render
+        // it mid-timeline, so the banner gets its beat only if the dock is
+        // explicitly held back. The draft and the automatic default bid are
+        // unaffected: a silent player is still scored.
+        els.dock.classList.add("pending");
+        els.dock.inert = true;
+        audio.play("dealin");
+        runTimeline((ctx) => bonusRoundTimeline(ctx, handle, next).finally(() => {
+          // Always release the dock, but only take focus if this timeline is
+          // still the current one: cancellation runs finally() too.
+          els.dock.classList.remove("pending");
+          els.dock.inert = false;
+          if (ctx.alive()) els.bidInput.focus({ preventScroll: true });
+        }));
         break;
       case "bidding":
         els.dock.classList.remove("in");
@@ -627,23 +797,30 @@ export function createTable({ send, roomCode, toast, audio }) {
   function dispose() {
     stopRing();
     clearTimeout(bidSendTimer);
+    ringObserver.disconnect();
+    chromeObserver.disconnect();
+    teardown.abort();
+    if (els.logSheet.open) els.logSheet.close();
     anim.cancelAll();
     resetTransient();
   }
 
   initLobbyControls(els, { send, roomCode, toast });
-  els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidInput));
-  els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidRange));
+  // Same teardown as the log sheet: these sit on static DOM that outlives the
+  // table, so without the signal a rejoin would leave a second set attached
+  // and every bid or Play again would be sent twice.
+  els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidInput), on);
+  els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidRange), on);
   const step = (delta) => {
     audio.play("tap");
     setDraftAmount(draft.amount + delta);
   };
-  els.bidDownBtn.addEventListener("click", () => step(-1));
-  els.bidUpBtn.addEventListener("click", () => step(1));
-  els.lockBtn.addEventListener("click", lockBid);
-  els.logBidsBtn.addEventListener("click", () => setLogMode("bids"));
-  els.logPayoutsBtn.addEventListener("click", () => setLogMode("payouts"));
-  els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }));
+  els.bidDownBtn.addEventListener("click", () => step(-1), on);
+  els.bidUpBtn.addEventListener("click", () => step(1), on);
+  els.lockBtn.addEventListener("click", lockBid, on);
+  els.logBidsBtn.addEventListener("click", () => setLogMode("bids"), on);
+  els.logPayoutsBtn.addEventListener("click", () => setLogMode("payouts"), on);
+  els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }), on);
 
   return { render, dispose, setConnected, els, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, isConnected: () => connected };
 }
