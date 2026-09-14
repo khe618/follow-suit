@@ -157,8 +157,8 @@ label { font-size: 0.85rem; color: var(--muted); }
 .seat-score { padding: 1px 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.45); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85rem; }
 .seat-score.pos { color: var(--good); }
 .seat-score.neg { color: var(--bad); }
-.seat-stakes { display: flex; gap: 3px; min-height: 16px; justify-content: center; }
-.stake-chip { padding: 0 6px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--gold); color: var(--ink); font-size: 0.72rem; line-height: 15px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.seat-stakes { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 84px; min-height: 16px; }
+.stake-chip { padding: 0 5px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--gold); color: var(--ink); font-size: 0.72rem; line-height: 15px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .stake-chip.hearts, .stake-chip.diamonds { color: #ff8a7a; }
 .seat-status { width: 10px; height: 10px; border-radius: 50%; margin-top: 2px; visibility: hidden; }
 .seat-status.thinking { visibility: visible; background: var(--muted); animation: pulse 1.4s ease-in-out infinite; }
