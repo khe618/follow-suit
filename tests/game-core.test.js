@@ -133,6 +133,7 @@ test("priorValue is the expected remaining count of the reference suit with no h
   assert.equal(priorValue(["hearts", "hearts", "hearts"], 17), Math.round(10 * 22 * 7 / 37));
   assert.equal(priorValue([], 19), 0);
   assert.equal(priorValue(["hearts"], 0), 0);
+  assert.equal(priorValue(["hearts"], 1000), 100, "clamps at MAX_BID");
   for (let k = 1; k <= 20; k++) {
     const v = priorValue(Array(k).fill("spades"), 20 - k);
     assert.ok(Number.isInteger(v) && v >= 0 && v <= 100, String(v));

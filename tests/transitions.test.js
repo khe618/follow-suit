@@ -62,6 +62,13 @@ test("every phase transition maps to its kind, including skipped steps and a new
   assert.deepEqual(kinds(seq), ["lobby", "deal", "bidding", "revealCard", "bidding", "results", "lobby", "deal"]);
 });
 
+test("consecutive runout steps are distinct transitions, keyed by auctionIndex", () => {
+  const step16 = snap({ phase: "reveal", revealStep: "card", auctionIndex: 16 });
+  const step17 = snap({ phase: "reveal", revealStep: "card", auctionIndex: 17 });
+  assert.deepEqual(kinds([step16, step17]), ["revealCard", "revealCard"]);
+  assert.deepEqual(kinds([step17, step17]), ["revealCard", "update"]);
+});
+
 const entry = (over) => ({
   index: 1, reference: "hearts", bids: { a: 80, b: 50, c: 20 }, buyers: ["a"], sellers: ["b", "c"], topBid: 80, void: false,
   purchase: { a: -70, b: 50, c: 20 }, flipped: null, hits: null, payouts: null, deltas: null, ...over
@@ -114,6 +121,11 @@ test("paymentStreams: sellers' bids at the purchase, netted payouts at the card"
   assert.notEqual(paymentStreams(card, "card")[0], payouts[0], "streams are copies");
   assert.deepEqual(paymentStreams(entry({ flipped: "clubs", hits: 0, payouts: [], deltas: { a: -70, b: 50, c: 20 } }), "card"), []);
   assert.deepEqual(paymentStreams(entry(), "card"), [], "before the flip there are no payouts");
+  const voidCard = entry({
+    bids: { a: 0, b: 0, c: 0 }, buyers: [], sellers: [], topBid: 0, void: true, purchase: { a: 0, b: 0, c: 0 },
+    flipped: "hearts", hits: 1, payouts: [{ from: "b", to: "a", amount: 10 }], deltas: { a: 10, b: -10, c: 0 }
+  });
+  assert.deepEqual(paymentStreams(voidCard, "card"), [{ from: "b", to: "a", amount: 10 }], "a void auction still pays an older stake at the card step");
 });
 
 test("the reveal-card timeline fits inside the configured step", () => {
