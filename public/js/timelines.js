@@ -17,6 +17,7 @@ const FLIP_MS = 400;
 const TURN_MS = 620;
 const COMPARE_MS = 800;
 const HAND_MS = 250;
+const CARD_TO_BUYER_MS = 420;
 const CHIPS_PER_STREAM = 6;
 const CHIP_GAP_MS = 60;
 const CHIP_MS = 500;
@@ -243,10 +244,30 @@ export async function revealBidsTimeline(ctx, t, state) {
   const tags = new Map(players.map((p) => [p.id, t.seatEl(p.id).querySelector(".bid-tag")]));
   for (const tag of tags.values()) tag.style.visibility = "hidden";
   els.priceBadge.style.visibility = "hidden";
-  // The state layer already drew the buyer's new stake chip; hold it back
-  // until the purchase lands.
-  const newChips = last.void ? [] : last.buyers.map((id) => t.seatEl(id).querySelector(`.stake-chip.${last.reference}`)).filter(Boolean);
-  for (const chip of newChips) chip.style.visibility = "hidden";
+  // The state layer has already drawn the post-purchase stack. Wind each one
+  // back to its pre-purchase look so the flight has something to land on.
+  // Stacks cap at four visible edges, so a purchase past the cap adds no card
+  // at all - only the count moves. That is why the count, not the card, is
+  // the thing always held back.
+  const landings = last.void ? [] : last.buyers.map((id) => {
+    const seat = t.seatEl(id);
+    const stack = seat && seat.querySelector(`.stake-stack[data-suit="${last.reference}"]`);
+    if (!stack) return null;
+    const after = Number(stack.dataset.count);
+    const edges = stack.querySelectorAll(".stake-card").length;
+    // Only hide an edge when this purchase is what added it.
+    const card = after <= edges ? stack.querySelectorAll(".stake-card")[edges - 1] : null;
+    const badge = stack.querySelector(".stake-count");
+    const wholeStack = after === 1;
+    stack.dataset.count = String(after - 1);
+    if (wholeStack) stack.style.visibility = "hidden";
+    else if (card) card.style.visibility = "hidden";
+    if (badge) {
+      if (after - 1 < 2) badge.style.visibility = "hidden";
+      else badge.textContent = String(after - 1);
+    }
+    return { stack, card, badge, after, wholeStack };
+  }).filter(Boolean);
   for (const id of ids) t.showScore(id, fromScores[id]);
 
   const order = players.slice().sort((a, b) => last.bids[a.id] - last.bids[b.id]);
@@ -263,10 +284,30 @@ export async function revealBidsTimeline(ctx, t, state) {
   // Let the bids sink in before the chips move.
   await ctx.wait(BIDS_PAUSE_MS);
   await payStreams(ctx, t, paymentStreams(last, "bids"), fromScores, toScores);
-  // Awaited: the sequencer cancels every tracked animation the moment the
-  // timeline returns, so an un-awaited pop would never be seen.
-  if (newChips.length) audio.play("tag");
-  await ctx.until(Promise.all(newChips.map((chip) => pop(ctx, chip).catch(() => {}))));
+  // The reference card cannot leave the slot - the next flip turns onto it -
+  // so what travels to the buyer is a copy. That is also what the mechanic
+  // is: you buy a claim on the suit, not the card itself.
+  if (landings.length) {
+    audio.play("tag");
+    const slot = ctx.centre(els.refSlot);
+    // .card.small is 46px wide; shrink the copy to one stake card as it goes.
+    const stakeW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--stake-w")) || 16;
+    const scale = Math.max(0.2, Math.min(1, stakeW / 46));
+    await ctx.until(Promise.all(landings.map(async (landing) => {
+      const copy = ctx.spawn(`card small ${last.reference}`, SUIT_SYMBOLS[last.reference]);
+      ctx.put(copy, slot);
+      await ctx.fly(copy, slot, ctx.centre(landing.stack), CARD_TO_BUYER_MS, { arc: 26, scale });
+      if (!ctx.alive()) return;
+      copy.remove();
+      landing.stack.dataset.count = String(landing.after);
+      if (landing.wholeStack) landing.stack.style.visibility = "";
+      if (landing.card) landing.card.style.visibility = "";
+      if (landing.badge) {
+        landing.badge.textContent = String(landing.after);
+        landing.badge.style.visibility = "";
+      }
+    })));
+  }
 }
 
 export async function revealCardTimeline(ctx, t, state) {
