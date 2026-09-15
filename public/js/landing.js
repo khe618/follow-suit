@@ -9,30 +9,11 @@ function shake(input) {
   input.classList.add("shake");
 }
 
-export function initLanding({ nameStore, onQuick, onFriends }) {
-  const input = $("nameInput");
-  input.value = nameStore.get();
-  const nameOrShake = () => {
-    const name = input.value.trim();
-    if (!name) {
-      shake(input);
-      return null;
-    }
-    nameStore.set(name);
-    return name;
-  };
-  $("quickBtn").addEventListener("click", () => {
-    const name = nameOrShake();
-    if (name) onQuick(name);
-  });
-  $("friendsBtn").addEventListener("click", () => {
-    const name = nameOrShake();
-    if (name) onFriends(name);
-  });
-  $("landingForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    $("quickBtn").click();
-  });
+// No name is asked for here: quick play seats you as "You", and a friends
+// room drops you on the same join card everyone else sees.
+export function initLanding({ onQuick, onFriends }) {
+  $("quickBtn").addEventListener("click", onQuick);
+  $("friendsBtn").addEventListener("click", onFriends);
 }
 
 export function initJoin({ nameStore, onSit }) {

@@ -123,7 +123,7 @@ label { font-size: 0.85rem; color: var(--muted); }
 .wm-suits .glyph:nth-child(4) { animation-delay: 360ms; }
 .wm-suits .hearts, .wm-suits .diamonds { color: var(--red); }
 @keyframes glyphFlip { from { transform: rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
-.landing form { width: min(100%, 340px); }
+.landing .stack { width: min(100%, 340px); }
 
 /* join */
 .join { position: relative; display: flex; align-items: center; justify-content: center; padding: 16px; }

@@ -8,6 +8,7 @@ const { plan } = window.Transitions;
 const $ = (id) => document.getElementById(id);
 const NAME_KEY = "followsuit:name";
 const SEAT_WAIT_MS = 1500;
+const QUICK_PLAY_NAME = "You";
 
 const store = {
   get(key) { try { return localStorage.getItem(key) || ""; } catch { return ""; } },
@@ -21,8 +22,7 @@ let roomCode = "";
 let net = null;
 let table = null;
 let state = null;
-let intent = null; // "quick" | "sit" | null, held in memory only
-let pendingName = "";
+let intent = null; // "quick" or null, held in memory only
 let awaitingSeat = false;
 let seatedSinceOpen = false; // did a seated snapshot arrive on the current socket?
 let seatWaitTimer = null;
@@ -58,7 +58,9 @@ async function newRoom() {
   return data.room;
 }
 
-async function startFromLanding(kind, name) {
+// "quick" seats you straight away as "You"; "friends" only opens the room and
+// leaves you on the join card, where you pick a name like every other guest.
+async function startFromLanding(kind) {
   if (startingRoom) return;
   startingRoom = true;
   $("quickBtn").disabled = true;
@@ -74,8 +76,7 @@ async function startFromLanding(kind, name) {
     $("friendsBtn").disabled = false;
     return;
   }
-  intent = kind;
-  pendingName = name;
+  intent = kind === "quick" ? "quick" : null;
   history.pushState({ room: code }, "", `/${code}`);
   enterRoom(code);
 }
@@ -120,11 +121,8 @@ function enterRoom(code) {
       seatedSinceOpen = false;
       if (intent === "quick") {
         awaitingSeat = true;
-        myNet.send({ type: "quick-play", name: pendingName, resumeToken: myNet.token() });
+        myNet.send({ type: "quick-play", name: QUICK_PLAY_NAME, resumeToken: myNet.token() });
         showSplash(code);
-      } else if (intent === "sit") {
-        awaitingSeat = true;
-        myNet.send({ type: "join", name: pendingName, resumeToken: myNet.token() });
       } else if (myNet.hasToken()) {
         // resume was sent by net; give the seated snapshot a moment before
         // falling back to the join screen (an expired token gets no reply).
@@ -204,9 +202,8 @@ function init() {
   createTutorial($("tutorial"), { audio });
   initTopbar();
   initLanding({
-    nameStore,
-    onQuick: (name) => startFromLanding("quick", name),
-    onFriends: (name) => startFromLanding("sit", name)
+    onQuick: () => startFromLanding("quick"),
+    onFriends: () => startFromLanding("friends")
   });
   initJoin({
     nameStore,

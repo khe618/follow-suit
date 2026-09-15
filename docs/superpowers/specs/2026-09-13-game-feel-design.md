@@ -114,11 +114,10 @@ Modules communicate through `app.js`: it holds `state`, calls `table.render(stat
 
 Five views plus one dialog: **landing**, **join**, **table** (serves lobby, dealing, bidding, reveal), **results** (an overlay on the table), **taken-over**, and the **tutorial** dialog.
 
-**Landing (`/`).** Full-bleed felt. The word mark with the four suit glyphs, which flip over one at a time on load. A name field (remembered as today). Two large chip-styled buttons: **Quick play** and **Play with friends**. A small round **?** button opens the tutorial. A sound toggle sits in the corner. No tagline, no paragraph.
+**Landing (`/`).** Full-bleed felt. The word mark with the four suit glyphs, which flip over one at a time on load. No name field — nothing is asked for here. Two large chip-styled buttons: **Quick play** and **Play with friends**. A small round **?** button opens the tutorial. A sound toggle sits in the corner. No tagline, no paragraph.
 
-- Quick play: saves the name, unlocks audio, calls `/api/new-room`, pushes `/abcd` onto history, opens the socket with a `quick` intent, and once the socket opens sends `quick-play` with the name. It shows a "dealing you in" splash (deck shuffle animation, no text beyond the room code) until the first seated snapshot arrives.
-- Play with friends: saves the name, unlocks audio, calls `/api/new-room`, pushes `/abcd`, opens the socket with a `sit` intent, and sends `join` with the name once the socket opens. The lobby appears with the first seated snapshot.
-- If the name field is empty, both buttons focus it and shake it. No toast.
+- Quick play: unlocks audio, calls `/api/new-room`, pushes `/abcd` onto history, opens the socket with a `quick` intent, and once the socket opens sends `quick-play` with the name `You`. Against bots there is nobody to introduce yourself to, so the seat is simply labelled `You`. It shows a "dealing you in" splash (deck shuffle animation, no text beyond the room code) until the first seated snapshot arrives.
+- Play with friends: unlocks audio, calls `/api/new-room`, pushes `/abcd`, and opens the socket with no intent, so the join screen below is what appears. You pick a name there, exactly as the friends who follow your link will.
 
 **Join (`/abcd` loaded directly, from a shared link or a reload without a token).** The table is drawn in the background, blurred, with as many seats occupied as `playerCount` says. In front: a name field (prefilled if remembered) and one button, **Sit down**. If the room is mid-game the button is replaced by a pulsing "table in play" pip and the view waits; when a lobby snapshot arrives the button appears. The first click on Sit down is also the audio unlock gesture for this document. A reload with a stored token skips this screen and resumes, as today.
 
@@ -214,7 +213,7 @@ There is no "why the game is hard" slide. The dialog closes with Escape, the × 
 
 Every string the client shows during play, to keep the "less text" promise honest:
 
-- Landing: `Follow Suit`, `Your name`, `Quick play`, `Play with friends`.
+- Landing: `Follow Suit`, `Quick play`, `Play with friends`.
 - Join: `Sit down`, name placeholder.
 - Lobby: `Deal`, `Invite`, `Link copied`, the `n / 6` counter.
 - Table: `Lock`, `Locked`, the `k / N` auction counter, room code, numbers on chips, cards, badges, and deltas, `no trade`.
