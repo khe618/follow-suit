@@ -4,6 +4,16 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 
 ---
 
+## 2026-09-15 — Re-rendering the log sheet can replace seat DOM a running timeline is holding, through the chrome/ring observers
+
+**Symptom / context:** None visible — 127 tests passed with the bug in, and it was caught only by an adversarial review. Toggling the log's Bids/Payouts view mid-reveal would fly the bought card copy at a detached stake stack and snap every seat's score to its final value before the chips landed. I had widened `setLogMode`'s guard from `!anim.running()` to `state.phase !== "dealing"`, reasoning that only the deal timeline blanks the log so a reveal could not be hurt.
+
+**Root cause:** The log is not independent of the table, and the coupling is entirely indirect — nothing in the DOM tree suggests it. `renderLog()` changes the log's height; the log is one of the elements `measureChrome()` sums into `--chrome-h`; `--chrome-h` sizes `.table` in CSS; the table resize fires `ringObserver` → `measureRing()` → `renderSeats()`, which replaces every stake stack and score node. `revealBidsTimeline` captures its stake-stack references up front (the `landings` array) and `revealCardTimeline` animates scores from a leg baseline, so both are holding nodes that redraw has just thrown away.
+
+**Fix / what to do next time:** Keep the `!anim.running()` guard on `setLogMode`, and move any chrome that must agree with the log (the payouts legend) into `renderLog()` itself, so it can never describe a table it did not render while the repaint waits for the next full draw. The general rule: **when a measured element feeds a CSS custom property that sizes another element under a ResizeObserver, re-rendering the measured element is a potential full re-render of the observed one.** Before re-rendering something "unrelated" during an animation here, follow the observer chain, not the DOM tree — `measureChrome`'s `chrome` array is the list of elements that can trigger it.
+
+**Refs:** `public/js/table.js` `setLogMode`/`renderLog`/`measureChrome` (the `chrome` array)/`measureRing`/`renderSeats`; `public/js/timelines.js` `revealBidsTimeline` (`landings`) and `revealCardTimeline`; `docs/superpowers/specs/2026-09-15-split-payout-legs-design.md` §3.2; commit ac82ed4.
+
 ## 2026-09-15 — `showJoinScreen()` disposed a table the same page was about to reuse, leaving the whole dock unwired
 
 **Symptom / context:** Arriving through the join screen (a shared room link, or no/expired resume token), the bid slider's thumb followed the finger but the big ring number stayed at 0, and the bid was never sent — the auction settled at the automatic opening 0. The `+1`/`−1` and Bid buttons were dead too, and typing in the number input *looked* like it worked because the browser paints the keystrokes. Reported as "the slider doesn't work on the first ply", in both Safari and Chrome, once per page load.
