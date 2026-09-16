@@ -3,6 +3,7 @@ import { createAnim } from "./anim.js";
 import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline, bonusRoundTimeline } from "./timelines.js";
 
 const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, RUNOUT_CARDS } = window.GameCore;
+const { legDeltas } = window.Transitions;
 const { seatPositions, fitRadii, podFace } = window.SeatLayout;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
@@ -22,7 +23,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     priceBadge: $("priceBadge"), lobbyCentre: $("lobbyCentre"), dealBtn: $("dealBtn"), inviteBtn: $("inviteBtn"),
     sprites: $("sprites"), log: $("log"), logHead: $("logHead"), logBody: $("logBody"), suitCounts: $("suitCounts"),
     logSheet: $("logSheet"), logBtn: $("logBtn"), logCloseBtn: $("logCloseBtn"),
-    logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
+    logLegend: $("logLegend"), logBidsBtn: $("logBidsBtn"), logPayoutsBtn: $("logPayoutsBtn"),
     hand: $("hand"), handFan: $("handFan"), handMemo: $("handMemo"), dock: $("dock"), bidInput: $("bidInput"),
     bidDownBtn: $("bidDownBtn"), bidUpBtn: $("bidUpBtn"),
     bidRange: $("bidRange"), lockBtn: $("lockBtn"), ringArc: $("ringArc"), results: $("resultsView"), standings: $("standings"),
@@ -122,6 +123,20 @@ export function createTable({ send, roomCode, toast, audio }) {
   }
   function fmtDelta(n) {
     return n > 0 ? `+${n}` : String(n);
+  }
+  // One leg of a round. null is "not settled yet" (or "no auction happened"),
+  // which is not the same as a zero and must not read like one.
+  function legCell(value, absent) {
+    const span = document.createElement("span");
+    span.className = "leg";
+    if (value === null) {
+      span.textContent = absent ? "–" : "·";
+      span.classList.add(absent ? "void" : "pending");
+      return span;
+    }
+    span.textContent = fmtDelta(value);
+    span.classList.add(value > 0 ? "pos" : value < 0 ? "neg" : "zero");
+    return span;
   }
   function seatColor(index) {
     return `var(--seat-${(index % 6) + 1})`;
@@ -408,9 +423,12 @@ export function createTable({ send, roomCode, toast, audio }) {
 
   // The log above the table: one column per card flipped so far, one row
   // per player with either the bid they made while that card was the
-  // reference or (toggled) what that auction paid them. The current
-  // reference gets a pending column until its bids are revealed; in the
-  // payouts view the column stays pending until the next card settles it.
+  // reference or (toggled) what that round moved. The payouts view shows the
+  // two legs on separate lines - what the auction paid, and what the flipped
+  // card paid - because a single netted figure hides which of the two a
+  // player is actually good at. The current reference gets a pending column
+  // until its bids are revealed; in the payouts view the card line stays a
+  // dot until the flip settles it.
   // The deal timeline empties the log so the first reference is not given
   // away before it is flipped.
   let logMode = "bids";
@@ -419,7 +437,14 @@ export function createTable({ send, roomCode, toast, audio }) {
     els.logBidsBtn.setAttribute("aria-pressed", String(mode === "bids"));
     els.logPayoutsBtn.setAttribute("aria-pressed", String(mode === "payouts"));
     els.log.querySelector(".log-table").setAttribute("aria-label", mode === "bids" ? "Cards and bids so far" : "Cards and payouts so far");
-    // A running timeline owns the log (the deal blanks it); the next full draw catches up.
+    // No timeline may be running. The log itself is only blanked by the deal,
+    // but re-rendering it changes its height, and that is observed: the log is
+    // in the chrome measured into --chrome-h, which sizes the table, which the
+    // ring observer answers with a full renderSeats(). That replaces the very
+    // stake stacks and score nodes a running reveal is holding references to,
+    // so a mid-reveal toggle would fly chips at detached nodes and snap scores
+    // to their final values early. renderLog paints the legend, so the two can
+    // never disagree while this waits for the next full draw.
     if (state && !anim.running()) renderLog();
   }
   function renderLog() {
@@ -428,6 +453,7 @@ export function createTable({ send, roomCode, toast, audio }) {
     // syncLogSheet, so a render can never reopen one the player closed.
     els.log.dataset.available = String(show);
     els.logBtn.disabled = !show;
+    els.logLegend.hidden = !show || logMode !== "payouts";
     if (!show) return;
     const players = orderedPlayers(state);
     const cols = state.history.map((h) => ({ suit: h.reference, entry: h }));
@@ -469,12 +495,12 @@ export function createTable({ send, roomCode, toast, audio }) {
             cell.textContent = String(entry.bids[p.id]);
             if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
           }
-        } else if (entry && entry.deltas) {
-          const d = entry.deltas[p.id] || 0;
-          cell.textContent = fmtDelta(d);
-          if (d > 0) cell.classList.add("pos");
-          else if (d < 0) cell.classList.add("neg");
-          else if (entry.void) cell.classList.add("void");
+        } else if (entry) {
+          const { purchase, payout } = legDeltas(entry, p.id);
+          cell.classList.add("legs");
+          // A runout round has no auction at all, so its auction line reads
+          // as absent rather than as a zero someone has to interpret.
+          cell.append(legCell(entry.runout ? null : purchase, entry.runout), legCell(payout, false));
           if (entry.buyers.includes(p.id)) cell.classList.add("buyer");
         } else {
           cell.textContent = "·";
@@ -683,7 +709,8 @@ export function createTable({ send, roomCode, toast, audio }) {
       // There is no single "price": topBid only decides who buys. What the
       // buyer actually pays is every seller's own bid.
       const paid = h.buyers.length ? -(h.purchase[h.buyers[0]] || 0) : 0;
-      const mine = (h.deltas && h.deltas[state.you]) || 0;
+      const { purchase: minePaid, payout: minePayout } = legDeltas(h, state.you);
+      const mine = (minePaid || 0) + (minePayout || 0);
       const isDoubled = h.index + 1 > bonusFrom;
 
       const ref = cardEl(h.reference, "mini");
@@ -707,9 +734,11 @@ export function createTable({ send, roomCode, toast, audio }) {
       }
       const flip = cardEl(h.flipped, "mini");
       if (isDoubled) flip.classList.add("doubled");
-      const delta = document.createElement("span");
-      delta.className = "recap-delta " + (mine > 0 ? "pos" : mine < 0 ? "neg" : "zero");
-      delta.textContent = fmtDelta(mine);
+      // Two lines, never one: the auction leg above the card's payout. Adding
+      // them is the player's to do, and seeing both is the whole point.
+      const delta = document.createElement("div");
+      delta.className = "recap-legs";
+      delta.append(legCell(h.runout ? null : minePaid, h.runout), legCell(minePayout, false));
 
       for (const el of [ref, who, flip, delta]) el.setAttribute("aria-hidden", "true");
       li.append(ref, who, flip, delta);
@@ -719,7 +748,9 @@ export function createTable({ send, roomCode, toast, audio }) {
           : h.void ? "no trade"
           : `${h.buyers.map(nameOf).join(" and ")} bought for ${paid}`) +
         `, flipped ${h.flipped}${isDoubled ? ", paying double" : ""}` +
-        `, you ${mine >= 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
+        (h.runout ? "" : `, auction ${minePaid >= 0 ? "plus" : "minus"} ${Math.abs(minePaid || 0)}`) +
+        `, card ${(minePayout || 0) >= 0 ? "plus" : "minus"} ${Math.abs(minePayout || 0)}` +
+        `, round ${mine >= 0 ? "plus" : "minus"} ${Math.abs(mine)}`);
       return li;
     }));
   }

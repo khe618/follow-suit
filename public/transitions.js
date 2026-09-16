@@ -56,6 +56,18 @@
     }
   }
 
+  // A round's two legs, never netted. The auction leg is what the buyer paid
+  // each seller (the seller's own bid); the card leg is what the flipped card
+  // paid the stakes it hit. The server sends the auction leg and the round
+  // total, so the card leg is the difference — and is null until the flip has
+  // settled, which is not the same as zero.
+  function legDeltas(entry, id) {
+    if (!entry) return { purchase: null, payout: null };
+    const purchase = (entry.purchase && entry.purchase[id]) || 0;
+    if (!entry.deltas) return { purchase, payout: null };
+    return { purchase, payout: (entry.deltas[id] || 0) - purchase };
+  }
+
   // Scores at the start of the leg the current reveal step animates: before
   // the purchase chips at reveal/bids, before the payout chips at
   // reveal/card. Derived from the snapshot alone, never from the DOM. The
@@ -69,7 +81,7 @@
     if (state.revealStep === "bids") {
       for (const id of Object.keys(out)) out[id] -= (last.purchase && last.purchase[id]) || 0;
     } else if (state.revealStep === "card" && last.deltas) {
-      for (const id of Object.keys(out)) out[id] -= (last.deltas[id] || 0) - ((last.purchase && last.purchase[id]) || 0);
+      for (const id of Object.keys(out)) out[id] -= legDeltas(last, id).payout || 0;
     }
     return out;
   }
@@ -87,5 +99,5 @@
     return entry.payouts ? entry.payouts.map((p) => ({ ...p })) : [];
   }
 
-  return { DEAL_TIMELINE_MS, CARD_TIMELINE_MS, transitionKey, plan, legBaseline, paymentStreams };
+  return { DEAL_TIMELINE_MS, CARD_TIMELINE_MS, transitionKey, plan, legDeltas, legBaseline, paymentStreams };
 });

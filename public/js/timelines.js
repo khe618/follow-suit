@@ -1,5 +1,5 @@
 const { SUIT_SYMBOLS, SUITS, RUNOUT_CARDS } = window.GameCore;
-const { paymentStreams, legBaseline } = window.Transitions;
+const { paymentStreams, legBaseline, legDeltas } = window.Transitions;
 
 // Worst case (2 players: 20 cards, 10 of them yours): 20*70 + 350 + (10*50 + 400)
 // + 2000 + 400 + 400 + (20*18 + 350) + 800 + 620 + 250 ≈ 7900 ms.
@@ -25,6 +25,28 @@ const DELTA_OUT_MS = 250;
 
 function fmtDelta(n) {
   return n > 0 ? `+${n}` : String(n);
+}
+
+// One number per seat, popped in, held long enough to read, faded. Each leg
+// of a round gets its own beat — the auction at the bids reveal, the card at
+// the card reveal — so no seat ever shows the two summed into one figure.
+async function deltaBadges(ctx, t, ids, valueOf) {
+  const badges = [];
+  for (const id of ids) {
+    const d = valueOf(id);
+    const badge = document.createElement("div");
+    badge.className = "delta-badge " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero");
+    badge.textContent = fmtDelta(d);
+    t.seatEl(id).append(badge);
+    badges.push(badge);
+    ctx.animate(badge, [{ transform: "translate(-50%, -50%) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, -50%) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
+  }
+  try {
+    await ctx.wait(DELTA_IN_MS + DELTA_HOLD_MS);
+    await ctx.until(Promise.all(badges.map((b) => ctx.animate(b, [{ opacity: 1 }, { opacity: 0 }], { duration: DELTA_OUT_MS, fill: "forwards" }).catch(() => {}))));
+  } finally {
+    for (const b of badges) b.remove();
+  }
 }
 function suitName(suit) {
   return suit[0].toUpperCase() + suit.slice(1);
@@ -257,7 +279,11 @@ export async function revealBidsTimeline(ctx, t, state) {
   audio.play(last.void ? "tap" : "rise");
   await pop(ctx, els.priceBadge);
   const nameOf = (id) => state.players.find((p) => p.id === id).name;
-  t.announce(last.void ? "No trade" : `${last.buyers.map(nameOf).join(" and ")} ${last.buyers.length > 1 ? "buy" : "buys"} ${last.reference}`);
+  const myPurchase = legDeltas(last, state.you).purchase || 0;
+  t.announce(last.void
+    ? "No trade"
+    : `${last.buyers.map(nameOf).join(" and ")} ${last.buyers.length > 1 ? "buy" : "buys"} ${last.reference}. ` +
+      (myPurchase === 0 ? "You pay and collect nothing" : `You ${myPurchase > 0 ? "collect" : "pay"} ${Math.abs(myPurchase)}`));
   if (last.void) return;
   // Let the bids sink in before the chips move.
   await ctx.wait(BIDS_PAUSE_MS);
@@ -291,6 +317,11 @@ export async function revealBidsTimeline(ctx, t, state) {
       }
     })));
   }
+  // The auction leg's own number, before the card is even turned. The card's
+  // payout gets the same treatment at the next beat, and the two are never
+  // added together on screen. (A void auction returned above: it moved
+  // nothing, and four zeroes would only repeat what the price badge says.)
+  await deltaBadges(ctx, t, ids, (id) => legDeltas(last, id).purchase || 0);
 }
 
 export async function revealCardTimeline(ctx, t, state) {
@@ -301,7 +332,7 @@ export async function revealCardTimeline(ctx, t, state) {
   // bids snapshot may have been skipped or its animation interrupted.
   const fromScores = legBaseline(state);
   const toScores = rawScores(state);
-  const payoutDelta = (id) => ((last.deltas && last.deltas[id]) || 0) - ((last.purchase && last.purchase[id]) || 0);
+  const payoutDelta = (id) => legDeltas(last, id).payout || 0;
   const hit = (last.hits || 0) > 0;
   const streams = paymentStreams(last, "card");
   // The card just flipped is number state.flipped.length. The first doubled
@@ -351,35 +382,19 @@ export async function revealCardTimeline(ctx, t, state) {
     }
   }
   const collectors = state.players.filter((p) => payoutDelta(p.id) > 0).map((p) => `${p.name} collects ${payoutDelta(p.id)}`);
-  const mine = (last.deltas && last.deltas[state.you]) || 0;
-  const you = mine === 0 ? "You break even" : `You ${mine > 0 ? "plus" : "minus"} ${Math.abs(mine)}`;
+  // This beat reports the card's payout only; the auction leg had its own.
+  const you = myPayout === 0 ? "The card pays you nothing" : `The card ${myPayout > 0 ? "pays you" : "costs you"} ${Math.abs(myPayout)}`;
   t.announce(`${suitName(last.flipped)}. ${!hit ? "No stakes" : streams.length === 0 ? "Payments cancel" : collectors.length ? collectors.join(", ") : "Payments cancel"}. ${you}`);
   await ctx.wait(COMPARE_MS);
   els.refSlot.style.visibility = "";
   top.remove();
   old.remove();
 
-  // Payout leg: every stake on the flipped suit, netted per pair. Then the
-  // net round delta on every seat: a badge that pops in, holds still long
-  // enough to read, and fades.
+  // Payout leg: every stake on the flipped suit, netted per pair. Then that
+  // leg's number on every seat — what the card paid, not the round total.
   if (streams.length) await payStreams(ctx, t, streams, fromScores, toScores, doubled);
   else for (const id of ids) t.showScore(id, toScores[id]);
-  const badges = [];
-  for (const id of ids) {
-    const d = (last.deltas && last.deltas[id]) || 0;
-    const badge = document.createElement("div");
-    badge.className = "delta-badge " + (d > 0 ? "pos" : d < 0 ? "neg" : "zero");
-    badge.textContent = fmtDelta(d);
-    t.seatEl(id).append(badge);
-    badges.push(badge);
-    ctx.animate(badge, [{ transform: "translate(-50%, -50%) scale(0.6)", opacity: 0 }, { transform: "translate(-50%, -50%) scale(1)", opacity: 1 }], { duration: DELTA_IN_MS, easing: "ease-out" }).catch(() => {});
-  }
-  try {
-    await ctx.wait(DELTA_IN_MS + DELTA_HOLD_MS);
-    await ctx.until(Promise.all(badges.map((b) => ctx.animate(b, [{ opacity: 1 }, { opacity: 0 }], { duration: DELTA_OUT_MS, fill: "forwards" }).catch(() => {}))));
-  } finally {
-    for (const b of badges) b.remove();
-  }
+  await deltaBadges(ctx, t, ids, payoutDelta);
 
   // Buyer glow, bid tags, and the price badge fade before the next auction.
   // The fade is a tracked animation (undone at teardown), so pin the end

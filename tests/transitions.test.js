@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { plan, legBaseline, paymentStreams, transitionKey, DEAL_TIMELINE_MS, CARD_TIMELINE_MS } = require("../public/transitions.js");
+const { plan, legDeltas, legBaseline, paymentStreams, transitionKey, DEAL_TIMELINE_MS, CARD_TIMELINE_MS } = require("../public/transitions.js");
 const { readConfig } = require("../lib/config.js");
 
 const players = [{ id: "a", score: 0 }, { id: "b", score: 0 }, { id: "c", score: 0 }];
@@ -74,6 +74,35 @@ const entry = (over) => ({
   purchase: { a: -70, b: 50, c: 20 }, flipped: null, hits: null, payouts: null, deltas: null, ...over
 });
 const withScores = (scores) => players.map((p) => ({ ...p, score: scores[p.id] }));
+
+test("legDeltas splits a round into its two legs and never nets them", () => {
+  // Auction leg only: the flip has not settled, so the card leg is null -
+  // which the UI must not render as a zero.
+  assert.deepEqual(legDeltas(entry(), "a"), { purchase: -70, payout: null });
+  assert.deepEqual(legDeltas(entry(), "b"), { purchase: 50, payout: null });
+
+  // Settled, with legs that settleFlip could really produce: b pays a 30, so
+  // a's card leg is +30 and b's is -30. a bought at -70 and the card paid 30
+  // back, for a round of -40; both legs and the round stay zero-sum.
+  const settled = entry({ flipped: "hearts", hits: 1, payouts: [{ from: "b", to: "a", amount: 30 }], deltas: { a: -40, b: 20, c: 20 } });
+  assert.deepEqual(legDeltas(settled, "a"), { purchase: -70, payout: 30 });
+  assert.deepEqual(legDeltas(settled, "b"), { purchase: 50, payout: -30 });
+  assert.deepEqual(legDeltas(settled, "c"), { purchase: 20, payout: 0 });
+  // The card legs mirror the payout streams they came from.
+  assert.equal(["a", "b", "c"].reduce((sum, id) => sum + legDeltas(settled, id).payout, 0), 0);
+  // The two legs still add back up to the round the server settled.
+  for (const id of ["a", "b", "c"]) {
+    const { purchase, payout } = legDeltas(settled, id);
+    assert.equal(purchase + payout, settled.deltas[id], id);
+  }
+
+  // A runout round has no auction: the card leg carries the whole round.
+  const runout = entry({ runout: true, purchase: { a: 0, b: 0, c: 0 }, flipped: "hearts", deltas: { a: 40, b: -20, c: -20 } });
+  assert.deepEqual(legDeltas(runout, "a"), { purchase: 0, payout: 40 });
+
+  assert.deepEqual(legDeltas(null, "a"), { purchase: null, payout: null });
+  assert.deepEqual(legDeltas(settled, "nobody"), { purchase: 0, payout: 0 });
+});
 
 test("legBaseline undoes the purchase at bids, the payout at card, nothing elsewhere", () => {
   const raw = { a: 10, b: 20, c: 30 };

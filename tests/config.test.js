@@ -5,7 +5,7 @@ const { readConfig } = require("../lib/config.js");
 test("defaults with no environment", () => {
   const c = readConfig({});
   assert.equal(c.port, 3000);
-  assert.deepEqual(c.game, { dealMs: 9500, bidMs: 60000, revealBidsMs: 4500, revealCardMs: 6000 });
+  assert.deepEqual(c.game, { dealMs: 9500, bidMs: 60000, revealBidsMs: 6000, revealCardMs: 6000 });
   assert.equal(c.resumeTtlMs, 600000);
   assert.equal(c.heartbeatMs, 30000);
 });
