@@ -13,6 +13,16 @@
   --gold-2: #f3cf7a;
   --red: #c0392b;
   --black: #1c1c1c;
+  /* Four-colour deck: every suit its own colour, on a card face and again
+     (lightened) for the chips and glyphs that sit straight on the felt. */
+  --suit-spades: #1c1c1c;
+  --suit-hearts: #c0392b;
+  --suit-diamonds: #1663b8;
+  --suit-clubs: #17793f;
+  --suit-spades-felt: #d6ded8;
+  --suit-hearts-felt: #ff8a7a;
+  --suit-diamonds-felt: #7fb8ff;
+  --suit-clubs-felt: #6fd898;
   --good: #58c27d;
   --bad: #e06c5a;
   --card-face: #fbf7ec;
@@ -20,6 +30,10 @@
   --card-back-2: #a94444;
   --chip: #d8452e;
   --chip-2: #f2e6d0;
+  /* Rail thickness: the inner band and the outer ring. measureRing() in
+     table.js reads --rail-w, so the fitted seat ring follows the real felt. */
+  --rail-w: 15px;
+  --rail-w-inner: 12px;
   --radius: 12px;
   --edge: #35533f;
   --edge-hover: #5a7a66;
@@ -121,7 +135,10 @@ label { font-size: 0.85rem; color: var(--muted); }
 .wm-suits .glyph:nth-child(2) { animation-delay: 120ms; }
 .wm-suits .glyph:nth-child(3) { animation-delay: 240ms; }
 .wm-suits .glyph:nth-child(4) { animation-delay: 360ms; }
-.wm-suits .hearts, .wm-suits .diamonds { color: var(--red); }
+.wm-suits .spades { color: var(--suit-spades); }
+.wm-suits .hearts { color: var(--suit-hearts); }
+.wm-suits .diamonds { color: var(--suit-diamonds); }
+.wm-suits .clubs { color: var(--suit-clubs); }
 @keyframes glyphFlip { from { transform: rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
 .landing .stack { width: min(100%, 340px); }
 
@@ -143,11 +160,21 @@ label { font-size: 0.85rem; color: var(--muted); }
   height: clamp(200px, calc(100dvh - var(--chrome-h, 200px) - env(safe-area-inset-bottom) - 40px), 100vh);
   width: auto; aspect-ratio: 10 / 13; max-width: min(100%, 900px); border-radius: 50%;
   background: radial-gradient(ellipse at 50% 40%, var(--felt-light), var(--felt-mid) 60%, var(--felt-dark));
-  box-shadow: inset 0 0 0 12px var(--rail), inset 0 0 0 15px var(--rail-2), inset 0 0 60px rgba(0, 0, 0, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0 0 var(--rail-w-inner) var(--rail), inset 0 0 0 var(--rail-w) var(--rail-2), inset 0 0 60px rgba(0, 0, 0, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 .table::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='0.06'/></svg>"); pointer-events: none; mix-blend-mode: overlay; }
-/* Below ~380px the felt is too narrow for a 92px pod beside the centre. */
-@media (max-width: 379px) { :root { --pod-w: 82px; --pod-h: 48px; } .seat .avatar { width: 26px; height: 26px; font-size: 0.75rem; } .seat-name { font-size: 0.7rem; } }
+/* Phone: a pod, the centre cluster and another pod want ~305px of a felt
+   only ~340px wide inside the rail, which left seats all but touching the
+   deck. The rail, the pods and the page gutter each give ground so the seat
+   ring can push back out, and the winning-bid badge climbs clear of the two
+   side seats' bid tags, which sit on exactly its line. */
+@media (max-width: 479px) {
+  :root { --pod-w: 82px; --pod-h: 48px; --rail-w: 10px; --rail-w-inner: 8px; }
+  .seat .avatar { width: 26px; height: 26px; font-size: 0.75rem; }
+  .seat-name { font-size: 0.7rem; }
+  .table-view { padding-left: 4px; padding-right: 4px; }
+  .price-badge { top: -46px; }
+}
 @media (min-width: 640px) { :root { --pod-w: 112px; --pod-h: 64px; --stake-w: 20px; --stake-h: 29px; } .seat .avatar { width: 44px; height: 44px; font-size: 1.2rem; } }
 @media (min-width: 720px) { .table { aspect-ratio: 16 / 10; } }
 .seats, .sprite-layer { position: absolute; inset: 0; }
@@ -193,7 +220,10 @@ label { font-size: 0.85rem; color: var(--muted); }
   font-size: calc(var(--stake-w) * 0.62); font-weight: 700; line-height: 1;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
-.stake-card.hearts, .stake-card.diamonds { color: var(--red); }
+.stake-card.spades { color: var(--suit-spades); }
+.stake-card.hearts { color: var(--suit-hearts); }
+.stake-card.diamonds { color: var(--suit-diamonds); }
+.stake-card.clubs { color: var(--suit-clubs); }
 .stake-count {
   position: absolute; right: -5px; bottom: -5px; min-width: 14px; height: 14px; padding: 0 3px;
   border-radius: 999px; background: var(--gold); color: #1a1408;
@@ -233,7 +263,7 @@ label { font-size: 0.85rem; color: var(--muted); }
 .lobby-centre { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 
 /* bonus round: the last five cards, which pay double */
-.table.bonus { background: radial-gradient(ellipse at 50% 40%, #2b7d52, #185a39 60%, #0f4529); box-shadow: inset 0 0 0 12px #6b4a1a, inset 0 0 0 15px var(--gold), inset 0 0 60px rgba(0, 0, 0, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6); }
+.table.bonus { background: radial-gradient(ellipse at 50% 40%, #2b7d52, #185a39 60%, #0f4529); box-shadow: inset 0 0 0 var(--rail-w-inner) #6b4a1a, inset 0 0 0 var(--rail-w) var(--gold), inset 0 0 60px rgba(0, 0, 0, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6); }
 .bonus-banner { position: absolute; left: 0; right: 0; top: 44%; padding: 8px 0; text-align: center; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; color: #1a1408; background: linear-gradient(180deg, var(--gold-2), var(--gold)); opacity: 0; pointer-events: none; z-index: 6; }
 .bonus-note { grid-column: 2 / -1; margin: 0; text-align: center; color: var(--gold-2); font-size: 0.82rem; font-weight: 700; }
 .dock.pending { visibility: hidden; }
@@ -241,7 +271,10 @@ label { font-size: 0.85rem; color: var(--muted); }
 
 /* cards */
 .card { display: inline-flex; align-items: center; justify-content: center; background: var(--card-face); color: var(--black); border-radius: 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); font-weight: 700; user-select: none; border: 2px solid #fff; }
-.card.hearts, .card.diamonds { color: var(--red); }
+.card.spades { color: var(--suit-spades); }
+.card.hearts { color: var(--suit-hearts); }
+.card.diamonds { color: var(--suit-diamonds); }
+.card.clubs { color: var(--suit-clubs); }
 .card.down { background: repeating-linear-gradient(45deg, var(--card-back), var(--card-back) 4px, var(--card-back-2) 4px, var(--card-back-2) 8px); color: transparent; border-color: var(--card-face); }
 .card.big { width: clamp(42px, 13cqmin, 72px); height: calc(clamp(42px, 13cqmin, 72px) * 1.39); font-size: clamp(1.5rem, 5cqmin, 2.6rem); flex: none; }
 .card.small { width: 46px; height: 64px; font-size: 1.6rem; }
@@ -291,7 +324,10 @@ label { font-size: 0.85rem; color: var(--muted); }
 .log-table td.void { color: var(--muted); }
 .suit-counts { display: flex; gap: 4px; }
 .suit-chip { padding: 2px 7px; border-radius: 999px; background: var(--felt-2); border: 1px solid var(--line); font-size: 0.8rem; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.suit-chip.hearts, .suit-chip.diamonds { color: #ff8a7a; }
+.suit-chip.spades { color: var(--suit-spades-felt); }
+.suit-chip.hearts { color: var(--suit-hearts-felt); }
+.suit-chip.diamonds { color: var(--suit-diamonds-felt); }
+.suit-chip.clubs { color: var(--suit-clubs-felt); }
 
 /* hand */
 .hand { display: grid; justify-items: center; align-items: center; min-height: 78px; padding: 4px 0; width: 100%; }
@@ -314,7 +350,10 @@ label { font-size: 0.85rem; color: var(--muted); }
 .ring-wrap input::-webkit-outer-spin-button, .ring-wrap input::-webkit-inner-spin-button { -webkit-appearance: none; }
 /* The dock stacks a chip for every 10 bid, so the number has a size. */
 .bid-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.bid-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--gold); height: 28px; }
+/* touch-action: none, or a drag that wanders a few pixels off the horizontal
+   is claimed by the page as a scroll and the bid silently stops following the
+   finger. The tall box is hit area, not a tall track. */
+.bid-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--gold); height: 44px; touch-action: none; }
 .step-btn {
   flex: none; display: inline-flex; align-items: center; justify-content: center; height: 36px; min-width: 44px; padding: 0 10px;
   border-radius: 999px; border: 2px solid var(--edge); background: var(--felt-2); color: var(--ink);

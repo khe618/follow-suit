@@ -3,10 +3,11 @@ const assert = require("node:assert/strict");
 const { createGame } = require("../lib/game.js");
 const { buildState } = require("../lib/snapshot.js");
 const { createClock } = require("./helpers/clock.js");
+const { dealtInSuitOrder } = require("./helpers/deal.js");
 
 function makeRoom() {
   const clock = createClock();
-  const game = createGame({ now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, randomInt: (n) => n - 1, random: () => 0.5 });
+  const game = createGame({ now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, randomInt: dealtInSuitOrder(3), random: () => 0.5 });
   const seats = new Map([
     ["p1", { id: "p1", name: "Ann", isBot: false, connected: true }],
     ["p2", { id: "p2", name: "Ben", isBot: false, connected: true }],

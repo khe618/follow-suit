@@ -2,21 +2,23 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createGame } = require("../lib/game.js");
 const { createClock } = require("./helpers/clock.js");
+const { dealtInSuitOrder } = require("./helpers/deal.js");
 
 const CONFIG = { dealMs: 7000, bidMs: 20000, revealBidsMs: 3000, revealCardMs: 4000 };
+
+const defaultSeats = [
+  { id: "p1", name: "Ann", isBot: false, connected: true },
+  { id: "p2", name: "Ben", isBot: false, connected: true }
+];
 
 function setup({ seats, randomInt, stayDealing } = {}) {
   const clock = createClock();
   const changes = [];
   const game = createGame({
     now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
-    randomInt: randomInt || ((n) => n - 1), random: () => 0.5, config: CONFIG,
+    randomInt: randomInt || dealtInSuitOrder((seats || defaultSeats).length), random: () => 0.5, config: CONFIG,
     onChange: () => changes.push(game.phase + ":" + game.revealStep)
   });
-  const defaultSeats = [
-    { id: "p1", name: "Ann", isBot: false, connected: true },
-    { id: "p2", name: "Ben", isBot: false, connected: true }
-  ];
   game.start(seats || defaultSeats);
   // Every test but the dealing ones wants auction 1 open.
   if (!stayDealing) clock.advance(CONFIG.dealMs);
@@ -163,7 +165,7 @@ test("a lock and the deadline at the same instant settle exactly once, in either
 });
 
 test("purchase at resolve, payout at the flip, and the flipped card becomes the reference", () => {
-  // Identity shuffle: p1 holds 10 spades, p2 holds 10 hearts, and the deck is
+  // dealtInSuitOrder: p1 holds 10 spades, p2 holds 10 hearts, and the deck is
   // those hands in order, so cards 1..10 are spades and 11..20 hearts.
   const { clock, game } = setup();
   assert.equal(game.reference(), "spades");

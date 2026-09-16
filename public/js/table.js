@@ -2,7 +2,7 @@ import { emptySeat, renderLobbyCentre, initLobbyControls } from "./lobby.js";
 import { createAnim } from "./anim.js";
 import { dealTimeline, revealBidsTimeline, revealCardTimeline, resultsTimeline, bonusRoundTimeline } from "./timelines.js";
 
-const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, priorValue, RUNOUT_CARDS } = window.GameCore;
+const { SUITS, SUIT_SYMBOLS, countSuits, rank, MAX_PLAYERS, RUNOUT_CARDS } = window.GameCore;
 const { seatPositions, fitRadii, podFace } = window.SeatLayout;
 const $ = (id) => document.getElementById(id);
 const RING_LENGTH = 282.7;
@@ -138,9 +138,12 @@ export function createTable({ send, roomCode, toast, audio }) {
     const css = getComputedStyle(document.documentElement);
     const podW = parseFloat(css.getPropertyValue("--pod-w")) || 92;
     const podH = parseFloat(css.getPropertyValue("--pod-h")) || 52;
+    // The rail is thinner on phones. Reading it beats a literal, which would
+    // keep fitting the ring to a rail width the felt no longer has.
+    const railPx = parseFloat(css.getPropertyValue("--rail-w")) || 15;
     const next = fitRadii({
       tableW: box.width, tableH: box.height,
-      podW: podW + POD_CLEARANCE * 2, podH: podH + POD_CLEARANCE * 2, railPx: 15
+      podW: podW + POD_CLEARANCE * 2, podH: podH + POD_CLEARANCE * 2, railPx
     });
     if (next.rx === ring.rx && next.ry === ring.ry) return false;
     ring = next;
@@ -547,14 +550,16 @@ export function createTable({ send, roomCode, toast, audio }) {
       clearTimeout(bidSendTimer);
       draft = {
         auction: state.auctionIndex,
-        amount: state.myBid ? state.myBid.amount : defaultBid(),
+        amount: state.myBid ? state.myBid.amount : 0,
         locked: state.myBid ? state.myBid.locked : false
       };
       tenAnnounced = false;
       els.bidInput.value = draft.amount;
       els.bidRange.value = draft.amount;
-      // The server scores a silent player at 0, so the default the dock
-      // shows is sent as soon as the auction opens to make it the real bid.
+      // Every auction opens at 0 on purpose: the dock must not hand out an
+      // estimate of the card's worth, because estimating it is the game. The
+      // server scores a silent player at 0 anyway, so sending it at once
+      // costs nothing and keeps the number on screen equal to the real bid.
       if (!state.myBid) scheduleBidSend(true);
     }
     ringTotal = Math.max(1, state.timing.bidMs);
@@ -595,24 +600,25 @@ export function createTable({ send, roomCode, toast, audio }) {
     ringTimer = null;
   }
 
-  // The public prior for the reference suit: what a silent player bids.
-  function defaultBid() {
-    return priorValue(state.flipped || [], state.cardsRemaining || 0);
-  }
   // Both controls always follow the draft, except the one the change came
   // from: rewriting the number input while it is being typed into would
   // fight the caret (and it holds focus for the whole auction, so testing
   // document.activeElement instead would freeze it on every slider drag).
   function setDraftAmount(raw, source) {
     let n = Math.round(Number(raw));
-    if (!Number.isFinite(n)) n = defaultBid();
+    if (!Number.isFinite(n)) n = 0;
     n = Math.max(0, Math.min(100, n));
+    const wasLocked = draft.locked;
     draft.amount = n;
     draft.locked = false;
     if (source !== els.bidRange) els.bidRange.value = n;
     if (source !== els.bidInput) els.bidInput.value = n;
     paintLock();
-    scheduleBidSend(false);
+    // Unlocking has to reach the server immediately. While the server still
+    // holds a locked bid, the next bot bid completes allLocked() and resolves
+    // the auction at the old amount, throwing away everything dragged or
+    // typed since; only the amount itself is safe to debounce.
+    scheduleBidSend(wasLocked);
   }
   function scheduleBidSend(immediate) {
     clearTimeout(bidSendTimer);
@@ -808,6 +814,19 @@ export function createTable({ send, roomCode, toast, audio }) {
   // and every bid or Play again would be sent twice.
   els.bidInput.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidInput), on);
   els.bidRange.addEventListener("input", (event) => setDraftAmount(event.target.value, els.bidRange), on);
+  // `input` fires all through a drag and is debounced, so the value the finger
+  // stopped on can still be sitting in the timer when the deadline fires or
+  // the socket drops - and the auction then resolves at whatever went out
+  // before it. `change` fires once, when the control is committed (pointer up,
+  // blur, Enter), so that value goes straight out. It is also the moment to
+  // show the clamp: a typed 150 is bid as 100 and should say so.
+  const commitDraft = () => {
+    els.bidInput.value = draft.amount;
+    els.bidRange.value = draft.amount;
+    scheduleBidSend(true);
+  };
+  els.bidInput.addEventListener("change", commitDraft, on);
+  els.bidRange.addEventListener("change", commitDraft, on);
   const step = (delta) => {
     audio.play("tap");
     setDraftAmount(draft.amount + delta);

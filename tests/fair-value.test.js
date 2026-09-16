@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { SUITS, buildPool, shuffle, countSuits, handSize } = require("../public/game-core.js");
+const { SUITS, countSuits, deal } = require("../public/game-core.js");
 const { nextSuitProbabilities, expectedRemaining, fairValue } = require("../lib/fair-value.js");
 
 const zero = () => ({ spades: 0, hearts: 0, diamonds: 0, clubs: 0 });
@@ -32,18 +32,26 @@ test("suits held in equal numbers are equally likely with no flips", () => {
 
 test("with no flips the answer equals the closed form (hand + expected unseen) / deck", () => {
   // Two players, hand 6/2/2/0. The 10 unseen deck cards (the other hand) are
-  // a uniform draw from the 30 pool cards left, which hold 4 spades, 8 hearts,
-  // 8 diamonds and 10 clubs, so E[deck spades] = 6 + 10 * 4/30 and
-  // P(spades) = that / 20.
+  // independent uniform draws, so each suit expects 10/4 of them regardless
+  // of what this hand holds: E[deck spades] = 6 + 2.5 and P(spades) = that / 20.
   const p = nextSuitProbabilities({ hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 });
   const expected = {
-    spades: (6 + 10 * 4 / 30) / 20,
-    hearts: (2 + 10 * 8 / 30) / 20,
-    diamonds: (2 + 10 * 8 / 30) / 20,
-    clubs: (0 + 10 * 10 / 30) / 20
+    spades: (6 + 2.5) / 20,
+    hearts: (2 + 2.5) / 20,
+    diamonds: (2 + 2.5) / 20,
+    clubs: (0 + 2.5) / 20
   };
   for (const s of SUITS) assert.ok(Math.abs(p[s] - expected[s]) < 1e-9, `${s}: ${p[s]} vs ${expected[s]}`);
-  assert.ok(Math.abs(p.spades - 11 / 30) < 1e-9);
+  assert.ok(Math.abs(p.spades - 0.425) < 1e-9);
+});
+
+test("a hand says nothing about the other hands, only about the deck it joins", () => {
+  // Same deck size, same flips, different holding: under the equal-probability
+  // deal the unseen part is 2.5 of each suit either way, so the whole
+  // difference between the two answers is the hand itself.
+  const a = expectedRemaining({ hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 });
+  const b = expectedRemaining({ hand: { spades: 1, hearts: 3, diamonds: 3, clubs: 3 }, flips: zero(), playerCount: 2 });
+  assert.ok(Math.abs((a.spades - b.spades) - 5) < 1e-9, `${a.spades} vs ${b.spades}`);
 });
 
 test("flipping a suit lowers it", () => {
@@ -58,10 +66,10 @@ test("expectedRemaining sums to the cards left in the deck", () => {
 });
 
 test("expectedRemaining with no flips equals hand + expected unseen", () => {
-  // Two players, hand 6/2/2/0: the other hand is 10 cards from the 30 pool
-  // cards left (4 spades, 8 hearts, 8 diamonds, 10 clubs).
+  // Two players, hand 6/2/2/0: the other hand is 10 independent uniform
+  // draws, so 2.5 of each suit.
   const e = expectedRemaining({ hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: zero(), playerCount: 2 });
-  const expected = { spades: 6 + 10 * 4 / 30, hearts: 2 + 10 * 8 / 30, diamonds: 2 + 10 * 8 / 30, clubs: 0 + 10 * 10 / 30 };
+  const expected = { spades: 8.5, hearts: 4.5, diamonds: 4.5, clubs: 2.5 };
   for (const s of SUITS) assert.ok(Math.abs(e[s] - expected[s]) < 1e-9, `${s}: ${e[s]} vs ${expected[s]}`);
 });
 
@@ -79,7 +87,7 @@ test("fairValue is cardValue(cards left) times the expected remaining count of t
   const e = expectedRemaining(args);
   // 20 cards left, the last 5 double: each expected card is worth 10 * 25 / 20 = 12.5.
   assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * e.spades) < 1e-9);
-  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * (6 + 10 * 4 / 30)) < 1e-9);
+  assert.ok(Math.abs(fairValue({ ...args, reference: "spades" }) - 12.5 * 8.5) < 1e-9);
   const late = { hand: { spades: 6, hearts: 2, diamonds: 2, clubs: 0 }, flips: { spades: 5, hearts: 5, diamonds: 3, clubs: 2 }, playerCount: 2 };
   // 5 cards left, all of them double.
   assert.ok(Math.abs(fairValue({ ...late, reference: "clubs" }) - 20 * expectedRemaining(late).clubs) < 1e-9);
@@ -99,16 +107,17 @@ test("rejects a hand of the wrong size", () => {
 // Monte Carlo of the real procedure, conditioning by rejection on both the
 // hand and the flips.
 function monteCarlo({ hand, flips, playerCount }, samples, random) {
-  const n = handSize(playerCount);
   const k = sum(flips);
   const hits = zero();
   let accepted = 0;
   const randomInt = (m) => Math.floor(random() * m);
   while (accepted < samples) {
-    const pool = shuffle(buildPool(), randomInt);
-    const hc = countSuits(pool.slice(0, n));
+    // Flip the deck deal() returned, not a fresh shuffle of the same cards:
+    // this way the test would notice a deck that stopped being shuffled, or
+    // shuffled with a bias, instead of quietly re-deriving it.
+    const { hands, deck } = deal(playerCount, randomInt);
+    const hc = countSuits(hands[0]);
     if (SUITS.some((s) => hc[s] !== hand[s])) continue;
-    const deck = shuffle(pool.slice(0, playerCount * n), randomInt);
     const fc = countSuits(deck.slice(0, k));
     if (SUITS.some((s) => fc[s] !== flips[s])) continue;
     hits[deck[k]] += 1;

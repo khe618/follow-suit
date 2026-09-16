@@ -9,7 +9,6 @@
 
   const SUITS = ["spades", "hearts", "diamonds", "clubs"];
   const SUIT_SYMBOLS = { spades: "♠", hearts: "♥", diamonds: "♦", clubs: "♣" };
-  const POOL_PER_SUIT = 10;
   const MIN_PLAYERS = 2;
   const MAX_PLAYERS = 4;
   const HAND_SIZES = { 2: 10, 3: 7, 4: 5 };
@@ -22,12 +21,6 @@
     const n = HAND_SIZES[playerCount];
     if (!n) throw new RangeError(`unsupported player count: ${playerCount}`);
     return n;
-  }
-
-  function buildPool() {
-    const pool = [];
-    for (const suit of SUITS) for (let i = 0; i < POOL_PER_SUIT; i++) pool.push(suit);
-    return pool;
   }
 
   function defaultRandomInt(maxExclusive) {
@@ -53,13 +46,17 @@
     return counts;
   }
 
-  // Hands come off the top of a shuffled pool, then the deck is exactly those
-  // hands reshuffled. The rest of the pool is discarded unseen.
+  // Every card is an independent uniform draw over the four suits, so no
+  // suit can run out and one player's hand says nothing about another's.
+  // The deck is exactly the dealt hands reshuffled; nothing is set aside.
   function deal(playerCount, randomInt = defaultRandomInt) {
     const n = handSize(playerCount);
-    const pool = shuffle(buildPool(), randomInt);
     const hands = [];
-    for (let p = 0; p < playerCount; p++) hands.push(pool.slice(p * n, (p + 1) * n));
+    for (let p = 0; p < playerCount; p++) {
+      const hand = [];
+      for (let i = 0; i < n; i++) hand.push(SUITS[randomInt(SUITS.length)]);
+      hands.push(hand);
+    }
     const deck = shuffle(hands.flat(), randomInt);
     return { hands, deck };
   }
@@ -137,19 +134,6 @@
     return (CARD_PAYOUT * (cardsRemaining + doubled * (RUNOUT_MULTIPLIER - 1))) / cardsRemaining;
   }
 
-  // Expected remaining count of the reference suit (the last flipped card)
-  // with no hand information: every remaining deck card is a uniformly
-  // random unseen pool card. Public arithmetic, used for the dock default.
-  function priorValue(flipped, cardsRemaining) {
-    const k = flipped.length;
-    if (k === 0 || cardsRemaining <= 0) return 0;
-    const suit = flipped[k - 1];
-    const seen = countSuits(flipped)[suit];
-    const unseen = SUITS.length * POOL_PER_SUIT - k;
-    const raw = Math.round((cardValue(cardsRemaining) * cardsRemaining * (POOL_PER_SUIT - seen)) / unseen);
-    return Math.max(0, Math.min(MAX_BID, raw));
-  }
-
   function rank(scores) {
     const rows = Object.keys(scores)
       .map((id) => ({ id, score: scores[id] }))
@@ -163,7 +147,7 @@
   }
 
   return {
-    SUITS, SUIT_SYMBOLS, POOL_PER_SUIT, MIN_PLAYERS, MAX_PLAYERS, HAND_SIZES, CARD_PAYOUT, RUNOUT_CARDS, RUNOUT_MULTIPLIER, MAX_BID,
-    handSize, buildPool, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, isRunoutCard, cardValue, priorValue, rank
+    SUITS, SUIT_SYMBOLS, MIN_PLAYERS, MAX_PLAYERS, HAND_SIZES, CARD_PAYOUT, RUNOUT_CARDS, RUNOUT_MULTIPLIER, MAX_BID,
+    handSize, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, isRunoutCard, cardValue, rank
   };
 });

@@ -4,6 +4,16 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 
 ---
 
+## 2026-09-15 — A locked bid plus a *debounced* unlock let the server resolve an auction at the previous amount
+
+**Symptom / context:** Dragging the bid slider sometimes had no effect on the amount actually bid. Nothing threw, no error surfaced, and the dock kept showing the new number, so only the settled score disagreed. Intermittent, because it needed a bot bid to land in a 150 ms window.
+
+**Root cause:** `setDraftAmount` in `public/js/table.js` set `draft.locked = false` *locally* and then routed the message through the amount debounce (`scheduleBidSend(false)`). `allLocked()` in `lib/game.js` reads the server's **stored** locked flag, not the client's, so for those 150 ms the server still believed the player was locked. Any bot bid arriving in the window completed `allLocked()` and called `resolve()` using the previous amount; the drag was discarded silently. A second hole on the same path: `input` fires all through a drag and is debounced, so the value the finger stopped on could still be pending when the bid deadline fired or the socket dropped, and the auction resolved at whatever had gone out before it.
+
+**Fix / what to do next time:** Send the unlock immediately — `scheduleBidSend(wasLocked)` — so only the amount is debounced. Separately, both bid controls now also listen for `change` (one event, fired on pointer up / blur / Enter) and send that value straight away; measured 2 ms after release against the 150 ms debounce. That handler also writes the clamp back, so a typed 150 shows the 100 it bids. The general rule: **when a server-side readiness check (`allLocked`, a quorum, an "everyone ready" gate) reads state the client mutates optimistically, the message that CLEARS readiness must never be debounced — only the payload may be.** One boundary is irreducible: if a bot's bid is processed before the immediate unlock arrives, the old locked bid still resolves; a client cannot win a network race.
+
+**Refs:** `public/js/table.js` (`setDraftAmount`, `scheduleBidSend`, the `change`/`commitDraft` listeners); `lib/game.js` `allLocked`/`bid`/`resolve`; `docs/superpowers/specs/2026-09-15-equal-probability-deal-design.md` §3.1.
+
 ## 2026-09-14 — The first doubled card belongs to a `runout: false` history entry
 
 **Symptom / context:** Building the bonus-round dressing and the results recap, the obvious derivation — "this flip pays double if `last.runout`" — silently missed the single most important doubled payout, and grouped the recap one cell off.

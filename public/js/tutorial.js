@@ -1,8 +1,8 @@
 import { cardEl } from "./table.js";
 import { createAnim } from "./anim.js";
-import { holdSpot, setAside, COMPARE_MS } from "./timelines.js";
+import { holdSpot, COMPARE_MS } from "./timelines.js";
 
-const { SUIT_SYMBOLS, SUITS, POOL_PER_SUIT } = window.GameCore;
+const { SUIT_SYMBOLS, SUITS } = window.GameCore;
 const { seatPositions, podFace } = window.SeatLayout;
 const NAMES = ["You", "A", "B"];
 const fmt = (n) => (n > 0 ? `+${n}` : String(n));
@@ -54,8 +54,8 @@ function miniTable() {
 }
 
 // Deals `count` cards to each seat: the bots' land face down beside their
-// avatars, yours face up in a row beside yours. `onCard` fires per card
-// dealt (slide 1 counts the pool down with it).
+// avatars, yours face up in a row beside yours. `onCard` fires per card dealt,
+// for a caller that wants to count along.
 async function dealTo(ctx, m, count, mySuits, onCard = () => {}) {
   const deck = ctx.centre(m.deck);
   const sprites = [];
@@ -198,7 +198,6 @@ async function heartPays(ctx, m, quick) {
   await Promise.all([chips(ctx, m, 1, 0, quick ? 3 : 5), chips(ctx, m, 2, 0, quick ? 3 : 5)]);
 }
 
-const POOL = SUITS.length * POOL_PER_SUIT;
 const SLIDES = [
   {
     caption: "Each round you bid for the suit on top. Own it, and every later flip of that suit pays you 10 from each player who sold it to you. Most chips when the deck runs out wins.",
@@ -214,7 +213,7 @@ const SLIDES = [
     }
   },
   {
-    caption: `Everyone is dealt a hand from a ${POOL}-card deck, ${POOL_PER_SUIT} of each suit. You see only your own.`,
+    caption: "Everyone is dealt a hand, every card equally likely to be any of the four suits. You see only your own.",
     async run(ctx, m) {
       // dealTo's cards live in the anim run's sprite group, which is torn
       // down (and removed from the DOM) as soon as this timeline settles —
@@ -222,29 +221,20 @@ const SLIDES = [
       // persistent nodes before they finish; this slide has no such
       // replacement step, so the dealt hand moves to the keep layer (above
       // the seats) instead of vanishing for the rest of the slide's hold.
-      let left = POOL;
-      m.deckCount.textContent = String(left);
-      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"], () => {
-        left -= 1;
-        m.deckCount.textContent = String(left);
-      });
+      m.deckCount.textContent = "";
+      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"]);
       m.keep.append(...sprites);
       await ctx.wait(1200);
     }
   },
   {
-    caption: "The hands are shuffled together into a new deck. The cards nobody was dealt are set aside.",
+    caption: "Those hands are shuffled together into the deck. Nothing else goes in, so what you hold is a big slice of what is still to come.",
     async run(ctx, m) {
-      let inPool = POOL;
-      m.deckCount.textContent = String(inPool);
-      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"], () => {
-        inPool -= 1;
-        m.deckCount.textContent = String(inPool);
-      });
+      m.deckCount.textContent = "";
+      const sprites = await dealTo(ctx, m, 2, ["spades", "hearts"]);
       const deck = ctx.centre(m.deck);
-      await ctx.wait(400);
-      await setAside(ctx, m.deck, m.deckCount, m.table, inPool);
-      await ctx.wait(200);
+      m.deck.classList.add("empty");
+      await ctx.wait(600);
       let inDeck = 0;
       for (const card of sprites.reverse()) {
         card.className = "card small down";

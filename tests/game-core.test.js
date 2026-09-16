@@ -1,9 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const GameCore = require("../public/game-core.js");
-const { SUITS, HAND_SIZES, CARD_PAYOUT, RUNOUT_CARDS, RUNOUT_MULTIPLIER, isRunoutCard, cardValue, handSize, buildPool, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, priorValue, rank } = GameCore;
+const { SUITS, HAND_SIZES, CARD_PAYOUT, RUNOUT_CARDS, RUNOUT_MULTIPLIER, isRunoutCard, cardValue, handSize, shuffle, countSuits, deal, resolveBids, settlePurchase, settleFlip, rank } = GameCore;
 
-// Deterministic randomInt: always picks the last index, so shuffle is identity.
+// Deterministic randomInt: always picks the last index, so every suit draw
+// is clubs and shuffle is the identity.
 const identityRandom = (n) => n - 1;
 
 test("hand-size table matches the spec", () => {
@@ -13,12 +14,8 @@ test("hand-size table matches the spec", () => {
   assert.throws(() => handSize(5), RangeError);
 });
 
-test("pool is 10 of each suit", () => {
-  assert.deepEqual(countSuits(buildPool()), { spades: 10, hearts: 10, diamonds: 10, clubs: 10 });
-});
-
 test("shuffle returns a permutation and does not mutate its input", () => {
-  const input = buildPool();
+  const input = SUITS.flatMap((suit) => Array(10).fill(suit));
   const copy = input.slice();
   const out = shuffle(input);
   assert.deepEqual(input, copy);
@@ -35,9 +32,36 @@ for (const playerCount of [2, 3, 4]) {
     assert.equal(deck.length, playerCount * n);
     const dealtCounts = countSuits(hands.flat());
     assert.deepEqual(countSuits(deck), dealtCounts);
-    for (const s of SUITS) assert.ok(dealtCounts[s] <= 10, `${s} exceeds pool`);
   });
 }
+
+test("deal draws every card independently with equal probability", () => {
+  // randomInt is asked for a suit index (maxExclusive 4) per dealt card and
+  // for shuffle positions; pinning the suit draws alone fixes the hands.
+  const allSpades = (m) => (m === SUITS.length ? 0 : m - 1);
+  const { hands } = deal(2, allSpades);
+  assert.deepEqual(countSuits(hands.flat()), { spades: 20, hearts: 0, diamonds: 0, clubs: 0 },
+    "no pool cap: a deal may be all one suit");
+
+  // A player's hand carries no information about anyone else's, and suit
+  // counts are not capped at the old 10 per suit. 4 players * 5 cards is 20
+  // draws a deal; over many deals every suit lands about a quarter of them.
+  const counts = { spades: 0, hearts: 0, diamonds: 0, clubs: 0 };
+  let overTen = 0;
+  for (let i = 0; i < 4000; i++) {
+    const c = countSuits(deal(4).deck);
+    for (const s of SUITS) {
+      counts[s] += c[s];
+      if (c[s] > 10) overTen += 1;
+    }
+  }
+  const drawn = 4000 * 20;
+  for (const s of SUITS) {
+    const share = counts[s] / drawn;
+    assert.ok(Math.abs(share - 0.25) < 0.02, `${s} share ${share}`);
+  }
+  assert.ok(overTen > 0, "a suit sometimes exceeds the old 10-card pool");
+});
 
 test("deal with identity random is reproducible", () => {
   const a = deal(3, identityRandom);
@@ -125,19 +149,6 @@ test("settleFlip is zero-sum", () => {
   const { deltas, payouts } = settleFlip(stakes, "hearts", ids);
   assert.equal(Object.values(deltas).reduce((x, y) => x + y, 0), 0);
   for (const p of payouts) assert.ok(p.amount > 0 && p.from !== p.to);
-});
-
-test("priorValue is the expected remaining count of the reference suit with no hand information", () => {
-  // Auction 1 of a 4-player game: 19 cards remain, the last 5 of them pay double, one of the suit is out of 39 unseen pool cards.
-  assert.equal(priorValue(["hearts"], 19), 55);
-  assert.equal(priorValue(["hearts", "hearts", "hearts"], 17), Math.round(10 * 22 * 7 / 37));
-  assert.equal(priorValue([], 19), 0);
-  assert.equal(priorValue(["hearts"], 0), 0);
-  assert.equal(priorValue(["hearts"], 1000), 100, "clamps at MAX_BID");
-  for (let k = 1; k <= 20; k++) {
-    const v = priorValue(Array(k).fill("spades"), 20 - k);
-    assert.ok(Number.isInteger(v) && v >= 0 && v <= 100, String(v));
-  }
 });
 
 test("runout: the last five cards pay double and a card's value scales with the doubled tail", () => {
