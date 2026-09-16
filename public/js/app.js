@@ -85,7 +85,12 @@ async function startFromLanding(kind) {
 // player has no seat here (fresh link, expired token, or a swept seat).
 function showJoinScreen() {
   state = null;
-  if (table) table.dispose();
+  // quiesce, not dispose: this table is not going away. Sitting down renders
+  // it again without another createTable, so disposing here left the dock's
+  // listeners aborted and its observers disconnected for the rest of the page
+  // - the slider still slid (that is the browser), but nothing followed it and
+  // no bid was ever sent.
+  if (table) table.quiesce();
   showView("joinView");
 }
 

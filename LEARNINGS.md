@@ -4,6 +4,16 @@ Durable findings — past bug fixes, non-obvious behavior, tooling quirks. Add w
 
 ---
 
+## 2026-09-15 — `showJoinScreen()` disposed a table the same page was about to reuse, leaving the whole dock unwired
+
+**Symptom / context:** Arriving through the join screen (a shared room link, or no/expired resume token), the bid slider's thumb followed the finger but the big ring number stayed at 0, and the bid was never sent — the auction settled at the automatic opening 0. The `+1`/`−1` and Bid buttons were dead too, and typing in the number input *looked* like it worked because the browser paints the keystrokes. Reported as "the slider doesn't work on the first ply", in both Safari and Chrome, once per page load.
+
+**Root cause:** `showJoinScreen()` in `public/js/app.js` called `table.dispose()`, and `dispose()` is one-way: `teardown.abort()` removes every listener registered with the shared `AbortController` (both bid inputs, the steppers, Bid, the log buttons, Play again) and `ringObserver`/`chromeObserver` are disconnected. But the join screen is shown *over* a table the same page renders again the moment the player sits down — `enterRoom()` has already run, so `createTable()` never runs a second time and nothing re-attaches. The slider still slid because that is the browser's own behaviour, which is exactly why the symptom pointed at touch handling rather than at wiring.
+
+**Fix / what to do next time:** Split the two jobs. `quiesce()` stops the ring, the pending bid send, the log sheet and any running animation; `dispose()` calls `quiesce()` and *then* does the irreversible part (disconnect the observers, abort the controller). `showJoinScreen()` calls `quiesce()`; only `enterRoom()` (a new table follows) and `onTakenOver()` (the page is finished) call `dispose()`. General rule: a teardown that aborts an `AbortController` or disconnects an observer must only run when the object is really going away — if any code path can show the same component again without reconstructing it, that path needs a reversible "quieten" instead.
+
+**Refs:** `public/js/app.js` `showJoinScreen`/`enterRoom`/`onTakenOver`; `public/js/table.js` `quiesce`/`dispose` and the `teardown` AbortController. Repro: open a room link in a context with no resume token, sit down, deal, drag the slider — before the fix the range read 84 while the number read 0 and one bid of 0 had been sent.
+
 ## 2026-09-15 — A locked bid plus a *debounced* unlock let the server resolve an auction at the previous amount
 
 **Symptom / context:** Dragging the bid slider sometimes had no effect on the amount actually bid. Nothing threw, no error surfaced, and the dock kept showing the new number, so only the settled score disagreed. Intermittent, because it needed a bot bid to land in a 150 ms window.

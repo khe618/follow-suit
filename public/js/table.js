@@ -797,15 +797,23 @@ export function createTable({ send, roomCode, toast, audio }) {
     else resyncDraft = true;
   }
 
-  function dispose() {
+  // Quieten the table without unwiring it. The join screen is shown *over* a
+  // table this same page will render again the moment the player sits down,
+  // so nothing it does may be one-way. Everything irreversible lives in
+  // dispose(), which is only for a table that is really going away.
+  function quiesce() {
     stopRing();
     clearTimeout(bidSendTimer);
-    ringObserver.disconnect();
-    chromeObserver.disconnect();
-    teardown.abort();
     if (els.logSheet.open) els.logSheet.close();
     anim.cancelAll();
     resetTransient();
+  }
+
+  function dispose() {
+    quiesce();
+    ringObserver.disconnect();
+    chromeObserver.disconnect();
+    teardown.abort();
   }
 
   initLobbyControls(els, { send, roomCode, toast });
@@ -838,5 +846,5 @@ export function createTable({ send, roomCode, toast, audio }) {
   els.logPayoutsBtn.addEventListener("click", () => setLogMode("payouts"), on);
   els.playAgainBtn.addEventListener("click", () => send({ type: "return-to-lobby" }), on);
 
-  return { render, dispose, setConnected, els, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, isConnected: () => connected };
+  return { render, dispose, quiesce, setConnected, els, seatEl: (id) => seatEls.get(id) || null, orderedPlayers, isConnected: () => connected };
 }
